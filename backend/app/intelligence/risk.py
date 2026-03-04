@@ -1,9 +1,8 @@
-def compute_risk(sentiment):
+def compute_risk(sentiment, anomaly):
 
-    if sentiment < -0.5:
-        return 80
+    sentiment_risk = abs(min(sentiment, 0)) * 60
+    anomaly_risk = anomaly * 40
 
-    if sentiment < -0.2:
-        return 60
+    risk_score = sentiment_risk + anomaly_risk
 
-    return 20
+    return min(100, round(risk_score, 2))
