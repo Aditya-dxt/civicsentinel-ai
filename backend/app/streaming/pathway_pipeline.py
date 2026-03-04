@@ -13,36 +13,21 @@ class CivicEvent(pw.Schema):
     text: str
 
 
-def process_stream(events: pw.Table):
+def build_pipeline(events: pw.Table):
 
-    processed = events.select(
-        event_id=pw.this.event_id,
-        timestamp=pw.this.timestamp,
-        location=pw.this.location,
-        issue=pw.this.issue,
-        text=pw.this.text,
-        sentiment=pw.apply(analyze_sentiment, pw.this.text),
+    # Sentiment analysis
+    events = events.with_columns(
+        sentiment=pw.apply(analyze_sentiment, pw.this.text)
     )
 
-    processed = processed.select(
-        event_id=pw.this.event_id,
-        timestamp=pw.this.timestamp,
-        location=pw.this.location,
-        issue=pw.this.issue,
-        text=pw.this.text,
-        sentiment=pw.this.sentiment,
-        anomaly=pw.apply(detect_anomaly, pw.this.issue),
+    # Anomaly detection
+    events = events.with_columns(
+        anomaly=pw.apply(detect_anomaly, pw.this.issue)
     )
 
-    processed = processed.select(
-        event_id=pw.this.event_id,
-        timestamp=pw.this.timestamp,
-        location=pw.this.location,
-        issue=pw.this.issue,
-        text=pw.this.text,
-        sentiment=pw.this.sentiment,
-        anomaly=pw.this.anomaly,
-        risk_score=pw.apply(compute_risk, pw.this.sentiment, pw.this.anomaly),
+    # Risk scoring
+    events = events.with_columns(
+        risk_score=pw.apply(compute_risk, pw.this.sentiment, pw.this.anomaly)
     )
 
-    return processed
+    return events
