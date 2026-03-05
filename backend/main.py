@@ -4,6 +4,8 @@
 
 from app.rag.rag_index import CivicRAG
 from fastapi import FastAPI
+from fastapi import WebSocket
+from app.api.ws import event_stream
 from app.streaming.pipeline import process_event
 from app.streaming.stream_service import start_stream, event_store
 from app.graph.civic_graph import CivicGraph
@@ -126,3 +128,7 @@ def knowledge_graph():
         "edges": len(graph_engine.graph.edges),
         "relations": relations
     }
+
+@app.websocket("/ws/events")
+async def websocket_events(websocket: WebSocket):
+    await event_stream(websocket)
