@@ -6,6 +6,7 @@ from app.rag.rag_index import CivicRAG
 from fastapi import FastAPI
 from app.intelligence.alerts import generate_alerts
 from app.intelligence.prediction import predict_crisis
+from app.intelligence.risk_map import generate_risk_map
 from fastapi import WebSocket
 from app.api.ws import event_stream
 from app.streaming.pipeline import process_event
@@ -151,4 +152,13 @@ def get_predictions():
 
     return {
         "predictions": predictions
+    }
+
+@app.get("/risk-map")
+def risk_map():
+
+    risk_data = generate_risk_map(event_store)
+
+    return {
+        "heatmap": risk_data
     }
