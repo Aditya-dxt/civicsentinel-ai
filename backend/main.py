@@ -6,9 +6,12 @@ from app.rag.rag_index import CivicRAG
 from fastapi import FastAPI
 from app.streaming.pipeline import process_event
 from app.streaming.stream_service import start_stream, event_store
+from app.graph.civic_graph import CivicGraph
 import asyncio
 
 app = FastAPI(title="CivicSentinel AI")
+
+graph_engine = CivicGraph()
 
 rag = CivicRAG()
 
@@ -110,3 +113,16 @@ def issue_trends():
             trends[issue] += 1
 
     return trends
+
+@app.get("/knowledge-graph")
+def knowledge_graph():
+
+    graph_engine.build_graph(event_store)
+
+    relations = graph_engine.get_relations()
+
+    return {
+        "nodes": len(graph_engine.graph.nodes),
+        "edges": len(graph_engine.graph.edges),
+        "relations": relations
+    }
