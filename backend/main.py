@@ -1,100 +1,108 @@
-#venv\Scripts\activate
-#uvicorn main:app --reload
+# venv\Scripts\activate
+# uvicorn main:app --reload
 
+from fastapi import FastAPI, WebSocket
+from dotenv import load_dotenv
+import asyncio
+import os
 
-from app.rag.rag_index import CivicRAG
-from fastapi import FastAPI
+# Streaming
+from app.streaming.pipeline import process_event
+from app.streaming.stream_service import start_stream, event_store
+from app.api.ws import event_stream
+
+# Intelligence modules
 from app.intelligence.alerts import generate_alerts
 from app.intelligence.prediction import predict_crisis
 from app.intelligence.risk_map import generate_risk_map
-from fastapi import WebSocket
-from app.api.ws import event_stream
-from app.streaming.pipeline import process_event
-from app.streaming.stream_service import start_stream, event_store
+
+# Knowledge graph
 from app.graph.civic_graph import CivicGraph
-import asyncio
+
+# RAG + LLM
+from app.rag.rag_index import CivicRAG
+from app.rag.retriever import CivicRetriever
+
+#AI-copilot
+from app.intelligence.copilot import civic_copilot
+
+# Dashboard
+from app.intelligence.dashboard import crisis_dashboard
+
+load_dotenv()
 
 app = FastAPI(title="CivicSentinel AI")
 
+# Initialize engines
 graph_engine = CivicGraph()
-
 rag = CivicRAG()
+retriever = CivicRetriever()
 
+# Seed knowledge base
 rag.add_documents([
     "Water supply issues increase in Mumbai during summer.",
     "Electricity outages often occur due to transformer overload.",
     "Corruption complaints are handled by Anti-Corruption Bureau.",
 ])
 
-
+# Start streaming pipeline
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(start_stream())
 
 
+# Root
 @app.get("/")
 def root():
     return {"message": "CivicSentinel backend running"}
 
 
+# Health check
 @app.get("/health")
 def health():
     return {"status": "ok"}
 
 
+# Generate single event
 @app.get("/event")
 def get_event():
     return process_event()
 
 
+# Get all events
 @app.get("/events")
 def get_events():
     return {"events": event_store}
 
+
+# -----------------------------
+# LLM Powered AI Insight
+# -----------------------------
 @app.get("/ai-insight")
 def ai_insight(query: str):
 
-    rag_results = rag.search(query)
+    # Use RAG + LLM reasoning
+    ai_analysis = retriever.query(query)
 
-    knowledge = [r.page_content for r in rag_results]
-
-    # get latest event
     latest_event = event_store[-1] if event_store else None
-
-    if not latest_event:
-        return {"query": query, "insight": "No civic events detected yet."}
-
-    city = latest_event["location"]
-    issue = latest_event["issue"]
-    risk = latest_event["risk_score"]
-    sentiment = latest_event["sentiment"]
-
-    if risk > 75:
-        severity = "HIGH"
-    elif risk > 50:
-        severity = "MEDIUM"
-    else:
-        severity = "LOW"
-
-    insight_text = f"""
-    Civic issue detected in {city}.
-    Issue type: {issue}.
-    Risk level: {severity}.
-    Sentiment score: {sentiment}.
-    Authorities may need to investigate this situation.
-    """
 
     return {
         "query": query,
-        "insight": insight_text,
-        "knowledge": knowledge
+        "latest_event": latest_event,
+        "ai_analysis": ai_analysis
     }
 
+
+# -----------------------------
+# Risk Summary
+# -----------------------------
 @app.get("/risk-summary")
 def risk_summary():
+
     summary = {}
 
     for event in event_store:
+
         city = event["location"]
         risk = event["risk_score"]
 
@@ -105,11 +113,17 @@ def risk_summary():
 
     return summary
 
+
+# -----------------------------
+# Issue Trends
+# -----------------------------
 @app.get("/issue-trends")
 def issue_trends():
+
     trends = {}
 
     for event in event_store:
+
         issue = event["issue"]
 
         if issue not in trends:
@@ -119,6 +133,10 @@ def issue_trends():
 
     return trends
 
+
+# -----------------------------
+# Knowledge Graph
+# -----------------------------
 @app.get("/knowledge-graph")
 def knowledge_graph():
 
@@ -132,33 +150,65 @@ def knowledge_graph():
         "relations": relations
     }
 
+
+# -----------------------------
+# WebSocket Live Events
+# -----------------------------
 @app.websocket("/ws/events")
 async def websocket_events(websocket: WebSocket):
     await event_stream(websocket)
 
+
+# -----------------------------
+# AI Alerts
+# -----------------------------
 @app.get("/alerts")
 def get_alerts():
 
     alerts = generate_alerts(event_store)
 
-    return {
-        "alerts": alerts
-    }
+    return {"alerts": alerts}
 
+
+# -----------------------------
+# Crisis Predictions
+# -----------------------------
 @app.get("/predictions")
 def get_predictions():
 
     predictions = predict_crisis(event_store)
 
-    return {
-        "predictions": predictions
-    }
+    return {"predictions": predictions}
 
+
+# -----------------------------
+# AI Risk Heatmap
+# -----------------------------
 @app.get("/risk-map")
 def risk_map():
 
     risk_data = generate_risk_map(event_store)
 
-    return {
-        "heatmap": risk_data
-    }
+    return {"heatmap": risk_data}
+
+
+# -----------------------------
+# AI-Civic Copilot
+# -----------------------------
+@app.get("/ai-civic-copilot")
+def ai_civic_copilot(query: str):
+
+    report = civic_copilot(query, event_store)
+
+    return report
+
+
+# -----------------------------
+# Crisis Dashboard
+# -----------------------------
+@app.get("/dashboard")
+def get_dashboard():
+
+    data = crisis_dashboard(event_store)
+
+    return data
