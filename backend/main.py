@@ -4,6 +4,7 @@
 
 from app.rag.rag_index import CivicRAG
 from fastapi import FastAPI
+from app.intelligence.alerts import generate_alerts
 from fastapi import WebSocket
 from app.api.ws import event_stream
 from app.streaming.pipeline import process_event
@@ -132,3 +133,12 @@ def knowledge_graph():
 @app.websocket("/ws/events")
 async def websocket_events(websocket: WebSocket):
     await event_stream(websocket)
+
+@app.get("/alerts")
+def get_alerts():
+
+    alerts = generate_alerts(event_store)
+
+    return {
+        "alerts": alerts
+    }
