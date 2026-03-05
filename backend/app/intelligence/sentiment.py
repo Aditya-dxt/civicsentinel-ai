@@ -1,7 +1,9 @@
 from textblob import TextBlob
 
-def analyze_sentiment(text: str):
+def analyze_sentiment(text):
 
-    sentiment = TextBlob(text).sentiment.polarity
+    blob = TextBlob(text)
 
-    return round(sentiment, 3)
+    polarity = blob.sentiment.polarity
+
+    return round(polarity, 3)

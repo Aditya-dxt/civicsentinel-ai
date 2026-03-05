@@ -48,24 +48,38 @@ def ai_insight(query: str):
 
     rag_results = rag.search(query)
 
-    insights = [r.page_content for r in rag_results]
+    knowledge = [r.page_content for r in rag_results]
 
+    # get latest event
     latest_event = event_store[-1] if event_store else None
 
-    if latest_event:
-        event_summary = {
-            "city": latest_event["location"],
-            "issue": latest_event["issue"],
-            "risk_score": latest_event["risk_score"],
-            "sentiment": latest_event["sentiment"]
-        }
+    if not latest_event:
+        return {"query": query, "insight": "No civic events detected yet."}
+
+    city = latest_event["location"]
+    issue = latest_event["issue"]
+    risk = latest_event["risk_score"]
+    sentiment = latest_event["sentiment"]
+
+    if risk > 75:
+        severity = "HIGH"
+    elif risk > 50:
+        severity = "MEDIUM"
     else:
-        event_summary = {}
+        severity = "LOW"
+
+    insight_text = f"""
+    Civic issue detected in {city}.
+    Issue type: {issue}.
+    Risk level: {severity}.
+    Sentiment score: {sentiment}.
+    Authorities may need to investigate this situation.
+    """
 
     return {
         "query": query,
-        "event_context": event_summary,
-        "knowledge": insights
+        "insight": insight_text,
+        "knowledge": knowledge
     }
 
 @app.get("/risk-summary")
