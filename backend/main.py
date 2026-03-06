@@ -29,6 +29,24 @@ from app.intelligence.copilot import civic_copilot
 # Dashboard
 from app.intelligence.dashboard import crisis_dashboard
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+app = FastAPI()
+
+# ADD THIS BLOCK ↓
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# rest of his routes below...
+
+
+
 load_dotenv()
 
 app = FastAPI(title="CivicSentinel AI")
