@@ -1,7 +1,7 @@
 import os
 
-from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+from openai import OpenAI
+from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
 
@@ -9,27 +9,46 @@ class CivicRAG:
 
     def __init__(self):
 
-        hf_key = os.environ.get("HF_API_KEY")
-
-        if not hf_key:
-            raise ValueError("HF_API_KEY is missing in environment variables")
-
-        self.embedding = HuggingFaceInferenceAPIEmbeddings(
-            api_key=hf_key,
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY")
         )
 
         self.db = Chroma(
             collection_name="civic_docs",
-            embedding_function=self.embedding
+            persist_directory="rag_store"
         )
+
+    def embed(self, text):
+
+        response = self.client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text
+        )
+
+        return response.data[0].embedding
 
     def add_documents(self, texts):
 
-        docs = [Document(page_content=t) for t in texts]
+        docs = []
+
+        for t in texts:
+
+            embedding = self.embed(t)
+
+            docs.append(
+                Document(
+                    page_content=t,
+                    metadata={"embedding": embedding}
+                )
+            )
 
         self.db.add_documents(docs)
 
     def search(self, query):
 
-        return self.db.similarity_search(query, k=3)
+        query_embedding = self.embed(query)
+
+        return self.db.similarity_search_by_vector(
+            query_embedding,
+            k=3
+        )

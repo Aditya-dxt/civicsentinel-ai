@@ -1,7 +1,7 @@
 import os
 
+from openai import OpenAI
 from langchain_chroma import Chroma
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 
 from app.intelligence.llm_engine import generate_llm_insight
 
@@ -10,26 +10,34 @@ class CivicRetriever:
 
     def __init__(self):
 
-        # HuggingFace API based embeddings (no local model loading)
-        self.embedding = HuggingFaceInferenceAPIEmbeddings(
-            api_key=os.getenv("HF_API_KEY"),
-            model_name="sentence-transformers/all-MiniLM-L6-v2"
+        self.client = OpenAI(
+            api_key=os.getenv("OPENAI_API_KEY")
         )
 
-        # Load Chroma vector DB
         self.db = Chroma(
-            persist_directory="rag_store",
-            embedding_function=self.embedding
+            persist_directory="rag_store"
         )
+
+    def embed(self, text):
+
+        response = self.client.embeddings.create(
+            model="text-embedding-3-small",
+            input=text
+        )
+
+        return response.data[0].embedding
 
     def query(self, question):
 
-        # Retrieve relevant knowledge
-        docs = self.db.similarity_search(question, k=3)
+        query_embedding = self.embed(question)
+
+        docs = self.db.similarity_search_by_vector(
+            query_embedding,
+            k=3
+        )
 
         context = "\n".join([doc.page_content for doc in docs])
 
-        # Send context + question to LLM
         insight = generate_llm_insight(question, context)
 
         return insight
