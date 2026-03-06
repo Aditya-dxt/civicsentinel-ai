@@ -2,6 +2,7 @@
 # uvicorn main:app --reload
 
 from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import asyncio
 import os
@@ -23,38 +24,37 @@ from app.graph.civic_graph import CivicGraph
 from app.rag.rag_index import CivicRAG
 from app.rag.retriever import CivicRetriever
 
-#AI-copilot
+# AI Copilot
 from app.intelligence.copilot import civic_copilot
 
 # Dashboard
 from app.intelligence.dashboard import crisis_dashboard
-
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
-app = FastAPI()
-
-# ADD THIS BLOCK ↓
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# rest of his routes below...
-
 
 
 load_dotenv()
 
 app = FastAPI(title="CivicSentinel AI")
 
+
+# CORS (for frontend connection)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "*"  # allows deployed frontend later
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 # Initialize engines
 graph_engine = CivicGraph()
 rag = CivicRAG()
 retriever = CivicRetriever()
+
 
 # Seed knowledge base
 rag.add_documents([
