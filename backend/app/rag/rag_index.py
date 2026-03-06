@@ -9,9 +9,13 @@ class CivicRAG:
 
     def __init__(self):
 
-        # Use HuggingFace Inference API instead of local model
+        hf_key = os.environ.get("HF_API_KEY")
+
+        if not hf_key:
+            raise ValueError("HF_API_KEY is missing in environment variables")
+
         self.embedding = HuggingFaceInferenceAPIEmbeddings(
-            api_key=os.getenv("HF_API_KEY"),
+            api_key=hf_key,
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
 
