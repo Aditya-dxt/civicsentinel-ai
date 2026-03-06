@@ -1,12 +1,17 @@
+import os
+
 from langchain_community.vectorstores import Chroma
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from langchain_core.documents import Document
+
 
 class CivicRAG:
 
     def __init__(self):
 
-        self.embedding = HuggingFaceEmbeddings(
+        # Use HuggingFace Inference API instead of local model
+        self.embedding = HuggingFaceInferenceAPIEmbeddings(
+            api_key=os.getenv("HF_API_KEY"),
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
 
