@@ -1,5 +1,7 @@
-from langchain_community.embeddings import HuggingFaceEmbeddings
+import os
+
 from langchain_chroma import Chroma
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 
 from app.intelligence.llm_engine import generate_llm_insight
 
@@ -8,10 +10,13 @@ class CivicRetriever:
 
     def __init__(self):
 
-        self.embedding = HuggingFaceEmbeddings(
+        # HuggingFace API based embeddings (no local model loading)
+        self.embedding = HuggingFaceInferenceAPIEmbeddings(
+            api_key=os.getenv("HF_API_KEY"),
             model_name="sentence-transformers/all-MiniLM-L6-v2"
         )
 
+        # Load Chroma vector DB
         self.db = Chroma(
             persist_directory="rag_store",
             embedding_function=self.embedding
@@ -24,7 +29,7 @@ class CivicRetriever:
 
         context = "\n".join([doc.page_content for doc in docs])
 
-        # Send to LLM for reasoning
+        # Send context + question to LLM
         insight = generate_llm_insight(question, context)
 
         return insight
