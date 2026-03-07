@@ -4,9 +4,7 @@ from app.intelligence.risk import compute_risk
 from app.intelligence.anomaly import detect_anomaly
 
 
-def process_event():
-
-    event = generate_event()
+def process_event(event):
 
     sentiment = analyze_sentiment(event["text"])
 

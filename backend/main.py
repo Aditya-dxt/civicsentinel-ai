@@ -9,7 +9,7 @@ import os
 
 # Streaming
 from app.streaming.pipeline import process_event
-from app.streaming.stream_service import start_stream, event_store
+from app.streaming.stream_service import event_store
 from app.api.ws import event_stream
 
 # Intelligence modules
@@ -30,6 +30,16 @@ from app.intelligence.copilot import civic_copilot
 # Dashboard
 from app.intelligence.dashboard import crisis_dashboard
 
+# Pydantic model for complaint reporting
+from pydantic import BaseModel
+import uuid
+from datetime import datetime
+from app.streaming.stream_service import broadcast_event
+
+class Complaint(BaseModel):
+    location: str
+    issue: str
+    text: str
 
 load_dotenv()
 
@@ -62,11 +72,6 @@ retriever = CivicRetriever()
 #    "Electricity outages often occur due to transformer overload.",
 #    "Corruption complaints are handled by Anti-Corruption Bureau.",
 #])
-
-# Start streaming pipeline
-@app.on_event("startup")
-async def startup_event():
-    asyncio.create_task(start_stream())
 
 
 # Root
@@ -230,3 +235,33 @@ def get_dashboard():
     data = crisis_dashboard(event_store)
 
     return data
+
+
+# -----------------------------
+# Report new complaint
+# -----------------------------
+@app.post("/report-complaint")
+async def report_complaint(data: Complaint):
+
+    event = {
+        "event_id": str(uuid.uuid4()),
+        "timestamp": datetime.utcnow().isoformat(),
+        "location": data.location,
+        "issue": data.issue,
+        "text": data.text
+    }
+
+    processed = process_event(event)
+
+    event_store.append(processed)
+
+    if len(event_store) > 50:
+        event_store.pop(0)
+
+    # 🔥 broadcast event instantly
+    await broadcast_event(processed)
+
+    return {
+        "status": "complaint received",
+        "event": processed
+    }

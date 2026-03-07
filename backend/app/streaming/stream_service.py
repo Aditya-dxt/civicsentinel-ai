@@ -1,20 +1,18 @@
 import asyncio
-from app.streaming.pipeline import process_event
 
 event_store = []
+connected_clients = []
 
 
-async def start_stream():
+async def broadcast_event(event):
 
-    while True:
+    disconnected = []
 
-        event = process_event()
+    for client in connected_clients:
+        try:
+            await client.send_json(event)
+        except:
+            disconnected.append(client)
 
-        event_store.append(event)
-
-        if len(event_store) > 50:
-            event_store.pop(0)
-
-        print("New Event:", event)
-
-        await asyncio.sleep(2)
+    for d in disconnected:
+        connected_clients.remove(d)
