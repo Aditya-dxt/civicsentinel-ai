@@ -1,4 +1,3 @@
-from app.ingestion.generator import generate_event
 from app.intelligence.sentiment import analyze_sentiment
 from app.intelligence.risk import compute_risk
 from app.intelligence.anomaly import detect_anomaly
