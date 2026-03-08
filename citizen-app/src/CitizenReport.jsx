@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { tl } from "./translations";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CIVICSENTINEL — CITIZEN REPORTING  v2
@@ -114,9 +115,10 @@ async function reverseGeocode(lat, lng) {
 // ── Step indicator ────────────────────────────────────────────────────────────
 const STEPS = ["photo","gps","ai","details","submit","done"];
 const STEP_ICONS = { photo:"📸", gps:"📍", ai:"🤖", details:"📝", submit:"🚀", done:"✅" };
-const STEP_LABELS = { photo:"Photo", gps:"GPS", ai:"AI Scan", details:"Details", submit:"Submit", done:"Done" };
+const getStepLabels = (lang) => ({ photo:tl(lang,"stepPhoto"), gps:tl(lang,"stepGps"), ai:tl(lang,"stepAi"), details:tl(lang,"stepDetails"), submit:tl(lang,"stepSubmit"), done:tl(lang,"stepDone") });
 
-function StepBar({ current }) {
+function StepBar({ current, lang="en" }) {
+  const STEP_LABELS = getStepLabels(lang);
   const idx = STEPS.indexOf(current);
   return (
     <div style={{display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22,gap:0}}>
@@ -171,7 +173,7 @@ function DetectionOverlay({ yolo }) {
 }
 
 // ── GPS step ──────────────────────────────────────────────────────────────────
-function GPSStep({ onDone, c }) {
+function GPSStep({ onDone, c, lang='en' }) {
   const [phase, setPhase]     = useState("waiting"); // waiting|locating|geocoding|done|error
   const [loc, setLoc]         = useState(null);
   const [geo, setGeo]         = useState(null);
@@ -186,7 +188,7 @@ function GPSStep({ onDone, c }) {
         const g = await reverseGeocode(l.lat, l.lng);
         setGeo(g); setPhase("done");
       },
-      err => { setErrMsg("GPS access denied — please enable location."); setPhase("error"); },
+      err => { setErrMsg(tl(lang,"locationFailed")); setPhase("error"); },
       { enableHighAccuracy:true, timeout:12000 }
     );
   }, []);
@@ -200,7 +202,7 @@ function GPSStep({ onDone, c }) {
       {(phase==="locating"||phase==="geocoding") && (
         <>
           <div style={{fontSize:52,animation:"bounce 1s infinite"}}>📍</div>
-          <div style={{color:"#00ccff",fontSize:14,fontWeight:600}}>{phase==="locating"?"Acquiring GPS signal…":"Looking up your area…"}</div>
+          <div style={{color:"#00ccff",fontSize:14,fontWeight:600}}>{phase==="locating"?tl(lang,"detectingLocation"):tl(lang,"detectingLocation")}</div>
           <div style={{display:"flex",gap:5}}>
             {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#00ccff",animation:`pulse 1.2s ${i*.3}s infinite`}}/>)}
           </div>
@@ -239,7 +241,7 @@ function GPSStep({ onDone, c }) {
           </div>
           <button onClick={()=>onDone(loc,geo)}
             style={{width:"100%",marginTop:14,padding:"13px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:9,color:"#00ccff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>
-            Confirm Location →
+            {tl(lang,"nextLocation")}
           </button>
         </div>
       )}
@@ -255,7 +257,7 @@ function GPSStep({ onDone, c }) {
 }
 
 // ── AI Scan step ──────────────────────────────────────────────────────────────
-function AIStep({ photo, onDone, onRetake }) {
+function AIStep({ photo, onDone, onRetake, lang='en' }) {
   const [phase, setPhase]   = useState("scanning"); // scanning|done|rejected
   const [yolo, setYolo]     = useState(null);
   const [progress, setProgress] = useState(0);
@@ -430,7 +432,7 @@ export default function CitizenReport({ user, lang="en", onClose }) {
   const BG = "rgba(4,10,22,0.97)";
   const ACCENT = "#00ccff";
   const sevColors = ["","#00ff9d","#ffb800","#ff8c00","#ff3060"];
-  const sevLabels = { en:["","Low","Medium","High","Emergency"], hi:["","कम","मध्यम","गंभीर","आपात"], ta:["","குறைவு","நடுத்தரம்","தீவிரம்","அவசரம்"], te:["","తక్కువ","మధ్యమం","అధికం","అత్యవసరం"], bn:["","কম","মাঝারি","বেশি","জরুরি"], mr:["","कमी","मध्यम","गंभीर","आणीबाणी"] };
+  const sevLabels = { en:["",tl(lang,"sev_low"),tl(lang,"sev_medium"),tl(lang,"sev_high"),"Emergency"], hi:["","कम","मध्यम","गंभीर","आपात"], ta:["","குறைவு","நடுத்தரம்","தீவிரம்","அவசரம்"], te:["","తక్కువ","మధ్యమం","అధికం","అత్యవసరం"], bn:["","কম","মাঝারি","বেশি","জরুরি"], mr:["","कमी","मध्यम","गंभीर","आणीबाणी"] };
   const sev = sevLabels[lang] || sevLabels.en;
 
   return (
@@ -451,13 +453,13 @@ export default function CitizenReport({ user, lang="en", onClose }) {
         {/* Header */}
         <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20}}>
           <div>
-            <div style={{fontSize:17,fontWeight:800,color:ACCENT}}>📣 Report an Issue</div>
-            <div style={{fontSize:11.5,color:"rgba(150,200,255,.44)",marginTop:3}}>GPS → Details → Submit to Ward · Photo optional</div>
+            <div style={{fontSize:17,fontWeight:800,color:ACCENT}}>📣 {tl(lang,"reportBtn")}</div>
+            <div style={{fontSize:11.5,color:"rgba(150,200,255,.44)",marginTop:3}}>{tl(lang,"stepGps")} → {tl(lang,"stepDetails")} → {tl(lang,"submit")} · {tl(lang,"stepPhoto")} optional</div>
           </div>
           <button onClick={onClose} style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,width:30,height:30,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
         </div>
 
-        {step!=="done" && <StepBar current={step}/>}
+        {step!=="done" && <StepBar current={step} lang={lang}/>}
 
         {/* ── STEP: PHOTO ── */}
         {step==="photo" && (
@@ -468,30 +470,30 @@ export default function CitizenReport({ user, lang="en", onClose }) {
                   <video ref={videoRef} autoPlay playsInline style={{width:"100%",maxHeight:280,display:"block"}}/>
                   <div style={{display:"flex",justifyContent:"center",gap:12,padding:12,background:"rgba(0,0,0,.75)"}}>
                     <button onClick={capturePhoto} style={{background:ACCENT,border:"none",borderRadius:"50%",width:56,height:56,fontSize:22,cursor:"pointer",boxShadow:`0 0 22px ${ACCENT}60`}}>📸</button>
-                    <button onClick={closeCamera} style={{background:"rgba(255,60,60,.25)",border:"1px solid rgba(255,60,60,.4)",borderRadius:8,padding:"0 16px",color:"#ff6060",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>Cancel</button>
+                    <button onClick={closeCamera} style={{background:"rgba(255,60,60,.25)",border:"1px solid rgba(255,60,60,.4)",borderRadius:8,padding:"0 16px",color:"#ff6060",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>{tl(lang,"cancel")}</button>
                   </div>
                 </div>
               ) : (
                 <div style={{display:"flex",flexDirection:"column",gap:11}}>
                   <button onClick={openCamera} style={{padding:"18px",background:"linear-gradient(135deg,rgba(0,200,255,.13),rgba(0,255,157,.07))",border:`2px dashed ${ACCENT}44`,borderRadius:14,color:ACCENT,fontSize:15,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:12,fontFamily:"'Inter',sans-serif"}}>
-                    <span style={{fontSize:28}}>📷</span> Take Photo
+                    <span style={{fontSize:28}}>📷</span> {tl(lang,"takePhoto")}
                   </button>
-                  <div style={{textAlign:"center",color:"rgba(150,200,255,.32)",fontSize:12}}>or</div>
+                  <div style={{textAlign:"center",color:"rgba(150,200,255,.32)",fontSize:12}}>{tl(lang,"or")}</div>
                   <button onClick={()=>fileRef.current && fileRef.current.click()} style={{padding:"13px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,color:"rgba(200,220,255,.65)",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'Inter',sans-serif"}}>
-                    <span>🖼️</span> Upload from Gallery
+                    <span>🖼️</span> {tl(lang,"uploadPhoto")}
                   </button>
                   <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
 
                   {/* Skip option */}
                   <div style={{borderTop:"1px solid rgba(255,255,255,.07)",paddingTop:12,marginTop:2}}>
                     <div style={{fontSize:11.5,color:"rgba(150,200,255,.38)",textAlign:"center",marginBottom:10}}>
-                      Can't take a photo? (e.g. no water supply, power cut, noise complaint)
+                      {tl(lang,"skipPhotoNote")}
                     </div>
                     <button onClick={()=>setStep("gps")}
                       style={{width:"100%",padding:"12px",background:"transparent",border:"1px dashed rgba(150,200,255,.22)",borderRadius:10,color:"rgba(150,200,255,.55)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .18s"}}
                       onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,200,255,.42)";e.currentTarget.style.color="#00ccff";}}
                       onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(150,200,255,.22)";e.currentTarget.style.color="rgba(150,200,255,.55)";}}>
-                      <span style={{fontSize:16}}>⏭</span> Skip Photo — Describe issue instead
+                      <span style={{fontSize:16}}>⏭</span> {tl(lang,"skipPhoto")}
                     </button>
                   </div>
                 </div>
@@ -513,7 +515,7 @@ export default function CitizenReport({ user, lang="en", onClose }) {
 
         {/* ── STEP: GPS ── */}
         {step==="gps" && (
-          <GPSStep onDone={(loc,geo)=>{ setLocation(loc); setGeoData(geo); setStep(photo ? "ai" : "details"); }} c={{}}/>
+          <GPSStep onDone={(loc,geo)=>{ setLocation(loc); setGeoData(geo); setStep(photo ? "ai" : "details"); }} c={{}} lang={lang}/>
         )}
 
         {/* ── STEP: AI SCAN ── */}
@@ -595,10 +597,10 @@ export default function CitizenReport({ user, lang="en", onClose }) {
             <div style={{background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.15)",borderRadius:12,padding:"16px"}}>
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 18px"}}>
                 {[
-                  ["📸 Photo",       photo ? "✅ AI Verified" : "⏭ Skipped"],
-                  ["📍 Location",    geoData && geoData.display || "—"],
+                  [tl(lang,"field_photo"),       photo ? tl(lang,"aiVerified") : tl(lang,"photoSkipped")],
+                  ["📍 " + tl(lang,"field_location"),    geoData && geoData.display || "—"],
                   ["🏘️ Ward",        geoData && geoData.ward || "—"],
-                  ["🤖 AI Detected", yolo ? yolo.issueLabel : photo ? "—" : "Manual entry"],
+                  ["🤖 AI Detected", yolo ? yolo.issueLabel : photo ? "—" : tl(lang,"manualEntry")],
                   ["📌 Category",    catLabel(category, lang)],
                   ["⚡ Severity",     sev[severity]],
                   ["🎯 Confidence",  yolo ? ((yolo.confidence*100).toFixed(0) + "%") : "N/A"],
@@ -621,7 +623,7 @@ export default function CitizenReport({ user, lang="en", onClose }) {
               <button onClick={()=>setStep("details")} style={{flex:1,padding:"11px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:"rgba(200,220,255,.5)",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>← Edit</button>
               <button onClick={handleSubmit} disabled={submitting}
                 style={{flex:2,padding:"13px",background:submitting?"rgba(0,200,255,.07)":"linear-gradient(135deg,#00ccff,#00ff9d)",border:"none",borderRadius:8,color:"#020609",fontSize:14,fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                {submitting?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,.2)",borderTopColor:"#020609",borderRadius:"50%",animation:"spin .7s linear infinite"}}/>Submitting…</>:"🚀 Submit Report"}
+                {submitting?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,.2)",borderTopColor:"#020609",borderRadius:"50%",animation:"spin .7s linear infinite"}}/>{tl(lang,"submitting")}</>:tl(lang,"submitReport")}
               </button>
             </div>
           </div>
@@ -642,9 +644,9 @@ export default function CitizenReport({ user, lang="en", onClose }) {
             {/* Status timeline */}
             <div style={{textAlign:"left",marginBottom:22}}>
               {[
-                photo ? ["📸","AI verified — genuine photo","✓ Done"] : ["⏭","Photo skipped — text report","✓ Done"],
-                ["📍", "GPS tagged — " + (geoData && geoData.ward || "ward"), "✓ Done"],
-                photo ? ["🤖", "YOLO: " + (yolo && yolo.issueLabel || "issue") + " detected", "✓ Done"] : null,
+                photo ? ["📸", tl(lang,"aiVerified"), "✓"] : ["⏭", tl(lang,"photoSkipped"), "✓"],
+                ["📍", "GPS — " + (geoData && geoData.ward || "ward"), "✓"],
+                photo ? ["🤖", (yolo && yolo.issueLabel || tl(lang,"aiDetected")), "✓"] : null,
                 ["🏛️","Dispatched to ward officer","⏳ In Progress"],
                 ["✅","Issue resolved","—"],
               ].filter(Boolean).map(([icon,label,status],i,arr)=>(
