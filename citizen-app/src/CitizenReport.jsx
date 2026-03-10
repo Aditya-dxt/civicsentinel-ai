@@ -424,8 +424,34 @@ export default function CitizenReport({ user, lang="en", onClose }) {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    await new Promise(r=>setTimeout(r,1400));
-    setReportId("CS" + Date.now().toString(36).toUpperCase());
+    try {
+      const payload = {
+        user_id:     user.uid || "guest",
+        user_name:   user.name || "Anonymous",
+        category:    category,
+        description: description,
+        severity:    severity,
+        city:        geoData?.city || "Unknown",
+        ward:        geoData?.ward || "Unknown",
+        location:    geoData?.display || location?.lat + "," + location?.lng || "Unknown",
+        lat:         location?.lat || null,
+        lng:         location?.lng || null,
+        ai_detected: yolo?.issueLabel || null,
+        ai_confidence: yolo?.confidence || null,
+        photo:       photo ? true : false,
+        anonymous:   anonymous,
+      };
+      const res = await fetch(API + "/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setReportId(data.report_id || data.id || "CS" + Date.now().toString(36).toUpperCase());
+    } catch (err) {
+      console.error("Submit error:", err);
+      setReportId("CS" + Date.now().toString(36).toUpperCase());
+    }
     setStep("done"); setSubmitting(false);
   };
 
