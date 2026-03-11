@@ -224,6 +224,20 @@ const CITY_GEO = {
   Chennai:   { lat:13.0827, lng:80.2707, zoom:12 },
   Kolkata:   { lat:22.5726, lng:88.3639, zoom:12 },
   Hyderabad: { lat:17.3850, lng:78.4867, zoom:12 },
+  Pune:      { lat:18.5204, lng:73.8567, zoom:12 },
+  Ahmedabad: { lat:23.0225, lng:72.5714, zoom:12 },
+  Jaipur:    { lat:26.9124, lng:75.7873, zoom:12 },
+  Surat:     { lat:21.1702, lng:72.8311, zoom:12 },
+  Kanpur:    { lat:26.4499, lng:80.3319, zoom:12 },
+  Nagpur:    { lat:21.1458, lng:79.0882, zoom:12 },
+  Lucknow:   { lat:26.8467, lng:80.9462, zoom:12 },
+  Bhopal:    { lat:23.2599, lng:77.4126, zoom:12 },
+  Indore:    { lat:22.7196, lng:75.8577, zoom:12 },
+  Patna:     { lat:25.5941, lng:85.1376, zoom:12 },
+  Vadodara:  { lat:22.3072, lng:73.1812, zoom:12 },
+  Coimbatore:{ lat:11.0168, lng:76.9558, zoom:12 },
+  Agra:      { lat:27.1767, lng:78.0081, zoom:12 },
+  Nashik:    { lat:19.9975, lng:73.7898, zoom:12 },
 };
 
 // Ward GeoJSON per city — real approximate boundaries as polygons
@@ -722,7 +736,7 @@ function AIInsightPanel({ insight, loading, error }) {
             onFocus={e=>e.target.style.borderColor=t.inputFocus}
             onBlur={e=>e.target.style.borderColor=t.inputBorder}/>
         </div>
-        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading?0.5:1}}>ASK</button>
+        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading?.5:1}}>ASK</button>
       </div>
     </div>
   );
@@ -757,7 +771,7 @@ function Panel({ title, subtitle, children, acc, tag, style={} }) {
 
 function CyberTip({ active, payload, label }) {
   const t = useT();
-  if (!active || !payload || !payload.length) return null;
+  if(!active||!payload?.length)return null;
   return (
     <div style={{background:t.panel,border:`1px solid ${t.border}`,borderRadius:8,padding:"10px 14px",fontFamily:"'DM Mono',monospace",backdropFilter:"blur(20px)"}}>
       <div style={{color:t.accent,fontSize:14,marginBottom:6}}>{label}</div>
@@ -769,8 +783,8 @@ function CyberTip({ active, payload, label }) {
 function Toggle({ isDark, onToggle }) {
   return (
     <button onClick={onToggle} style={{position:"relative",width:64,height:30,borderRadius:15,cursor:"pointer",padding:0,overflow:"hidden",background:isDark?"linear-gradient(135deg,#020609,#001828)":"linear-gradient(135deg,#dce8ff,#eff6ff)",border:`1.5px solid ${isDark?"rgba(0,204,255,0.42)":"rgba(0,60,140,0.26)"}`,boxShadow:isDark?"0 0 12px rgba(0,204,255,0.16)":"0 2px 8px rgba(0,60,140,0.09)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}>
-      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?0.88:0.28,transition:"opacity .3s"}}>🌙</span>
-      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?0.28:0.92,transition:"opacity .3s"}}>☀️</span>
+      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.88:.28,transition:"opacity .3s"}}>🌙</span>
+      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.28:.92,transition:"opacity .3s"}}>☀️</span>
       <div style={{position:"absolute",top:3,left:isDark?3:37,width:22,height:22,borderRadius:"50%",background:isDark?"linear-gradient(135deg,#00ccff,#0055bb)":"linear-gradient(135deg,#fbbf24,#f59e0b)",boxShadow:isDark?"0 0 10px rgba(0,204,255,0.65)":"0 2px 6px rgba(251,191,36,0.55)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}/>
     </button>
   );
@@ -961,7 +975,7 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {SUGGESTIONS.map((s,i)=>(
               <button key={i} onClick={()=>!loading&&send(s)}
-                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?0.55:1}}
+                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?.55:1}}
                 onMouseEnter={e=>!loading&&(e.currentTarget.style.background=`${theme.amber}14`)}
                 onMouseLeave={e=>(e.currentTarget.style.background=`${theme.amber}08`)}>
                 💬 {s}
