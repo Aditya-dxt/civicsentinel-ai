@@ -94,6 +94,15 @@ async function runYoloDetection(base64Image) {
 }
 
 // ── Reverse geocode using free Nominatim ─────────────────────────────────────
+// Map any city name to the closest known city for backend risk scoring
+const KNOWN_CITIES = ["Mumbai","Delhi","Bangalore","Chennai","Kolkata","Hyderabad","Pune","Ahmedabad","Jaipur","Surat","Kanpur","Nagpur","Lucknow","Bhopal","Indore","Patna","Vadodara","Coimbatore","Agra","Nashik"];
+function normalizeCity(rawCity) {
+  if (!rawCity) return "Unknown";
+  const lower = rawCity.toLowerCase();
+  const match = KNOWN_CITIES.find(c => lower.includes(c.toLowerCase()) || c.toLowerCase().includes(lower));
+  return match || rawCity;
+}
+
 async function reverseGeocode(lat, lng) {
   try {
     const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14`,
@@ -102,7 +111,7 @@ async function reverseGeocode(lat, lng) {
     const a = d.address || {};
     return {
       ward:     a.suburb || a.neighbourhood || a.quarter || "Unknown Ward",
-      city:     a.city || a.town || a.county || "Unknown City",
+      city:     normalizeCity(a.city || a.town || a.county || "Unknown City"),
       district: a.state_district || a.county || "",
       state:    a.state || "",
       display:  d.display_name && d.display_name.split(",").slice(0,3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
@@ -424,8 +433,24 @@ export default function CitizenReport({ user, lang="en", onClose }) {
 
   const handleSubmit = async () => {
     setSubmitting(true);
-    await new Promise(r=>setTimeout(r,1400));
-    setReportId("CS" + Date.now().toString(36).toUpperCase());
+    try {
+      const cityName = geoData?.city || "Unknown";
+      const payload = {
+        location: cityName,
+        issue:    category || yolo?.issueLabel || "General",
+        text:     `${category || "General"} issue in ${geoData?.ward || cityName}, ${cityName}. ${description}`.trim(),
+      };
+      const res = await fetch(API + "/report-complaint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setReportId(data.report_id || data.id || "CS" + Date.now().toString(36).toUpperCase());
+    } catch (err) {
+      console.error("Submit error:", err);
+      setReportId("CS" + Date.now().toString(36).toUpperCase());
+    }
     setStep("done"); setSubmitting(false);
   };
 
