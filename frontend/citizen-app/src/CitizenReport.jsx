@@ -692,4 +692,4 @@ export default function CitizenReport({ user, lang="en", onClose }) {
       </div>
     </div>
   );
-}
+}cl
