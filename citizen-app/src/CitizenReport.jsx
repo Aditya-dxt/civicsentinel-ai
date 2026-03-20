@@ -182,14 +182,19 @@ function DetectionOverlay({ yolo }) {
 }
 
 // ── GPS step ──────────────────────────────────────────────────────────────────
+const INDIAN_CITIES = ["Mumbai","Delhi","Bangalore","Chennai","Kolkata","Hyderabad","Pune","Ahmedabad","Jaipur","Surat","Kanpur","Nagpur","Lucknow","Bhopal","Indore","Patna","Vadodara","Coimbatore","Agra","Nashik","Rajkot","Meerut","Varanasi","Amritsar","Visakhapatnam","Thane","Navi Mumbai","Faridabad","Ghaziabad","Noida"];
+
 function GPSStep({ onDone, c, lang='en' }) {
-  const [phase, setPhase]     = useState("waiting"); // waiting|locating|geocoding|done|error
-  const [loc, setLoc]         = useState(null);
-  const [geo, setGeo]         = useState(null);
-  const [errMsg, setErrMsg]   = useState("");
+  const [phase, setPhase]       = useState("waiting");
+  const [loc, setLoc]           = useState(null);
+  const [geo, setGeo]           = useState(null);
+  const [errMsg, setErrMsg]     = useState("");
+  const [showManual, setShowManual] = useState(false);
+  const [manualCity, setManualCity] = useState("");
+  const [manualWard, setManualWard] = useState("");
 
   const locate = useCallback(() => {
-    setPhase("locating"); setErrMsg("");
+    setPhase("locating"); setErrMsg(""); setShowManual(false);
     navigator.geolocation.getCurrentPosition(
       async pos => {
         const l = { lat:pos.coords.latitude, lng:pos.coords.longitude, accuracy:Math.round(pos.coords.accuracy) };
@@ -197,10 +202,17 @@ function GPSStep({ onDone, c, lang='en' }) {
         const g = await reverseGeocode(l.lat, l.lng);
         setGeo(g); setPhase("done");
       },
-      err => { setErrMsg(tl(lang,"locationFailed")); setPhase("error"); },
+      err => { setErrMsg(tl(lang,"locationFailed")); setPhase("error"); setShowManual(true); },
       { enableHighAccuracy:true, timeout:12000 }
     );
   }, []);
+
+  const handleManualSubmit = () => {
+    if (!manualCity) return;
+    const g = { ward: manualWard || manualCity, city: manualCity, display: manualWard ? `${manualWard}, ${manualCity}` : manualCity };
+    const l = { lat:0, lng:0, accuracy:0 };
+    setLoc(l); setGeo(g); setPhase("done");
+  };
 
   useEffect(() => { locate(); }, []);
 
@@ -258,7 +270,27 @@ function GPSStep({ onDone, c, lang='en' }) {
         <div style={{textAlign:"center"}}>
           <div style={{fontSize:38}}>🚫</div>
           <div style={{color:"#ff6060",fontSize:13,margin:"12px 0",lineHeight:1.6}}>{errMsg}</div>
-          <button onClick={locate} style={{padding:"10px 22px",background:"rgba(0,200,255,.12)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:"#00ccff",cursor:"pointer",fontSize:13,fontWeight:600}}>Try Again</button>
+          <button onClick={locate} style={{padding:"10px 22px",background:"rgba(0,200,255,.12)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:"#00ccff",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:12}}>Try Again</button>
+        </div>
+      )}
+      {/* Manual city entry — always visible after error or as option */}
+      {(phase==="error" || phase==="done") && (
+        <div style={{marginTop:phase==="done"?0:8,borderTop:"1px solid rgba(0,200,255,.12)",paddingTop:12}}>
+          <div style={{fontSize:11,color:"rgba(150,200,255,.5)",textAlign:"center",marginBottom:8}}>
+            📍 Or select city manually for demo
+          </div>
+          <select value={manualCity} onChange={e=>setManualCity(e.target.value)}
+            style={{width:"100%",padding:"10px 12px",background:"rgba(0,200,255,.06)",border:"1px solid rgba(0,200,255,.25)",borderRadius:8,color:"#00ccff",fontSize:13,fontFamily:"'Inter',sans-serif",marginBottom:8,cursor:"pointer"}}>
+            <option value="">— Select City —</option>
+            {INDIAN_CITIES.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <input value={manualWard} onChange={e=>setManualWard(e.target.value)}
+            placeholder="Ward / Area (optional)"
+            style={{width:"100%",padding:"9px 12px",background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.18)",borderRadius:8,color:"#00ccff",fontSize:12,fontFamily:"'Inter',sans-serif",marginBottom:8,outline:"none"}}/>
+          <button onClick={handleManualSubmit} disabled={!manualCity}
+            style={{width:"100%",padding:"11px",background:manualCity?"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))":"rgba(255,255,255,.04)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:manualCity?"#00ccff":"rgba(100,150,200,.4)",fontSize:13,fontWeight:700,cursor:manualCity?"pointer":"not-allowed",fontFamily:"'Inter',sans-serif"}}>
+            ✓ Use This Location
+          </button>
         </div>
       )}
     </div>

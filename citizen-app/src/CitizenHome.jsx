@@ -13,12 +13,6 @@ const API = "https://civicsentinel-ai-1.onrender.com";
 const STATUS_COLOR = { submitted:"#3b82f6", in_progress:"#f97316", resolved:"#22c55e" };
 const ISSUE_ICONS  = { water:"💧", road:"🚧", electricity:"⚡", garbage:"🗑️", encroachment:"🏗️", crime:"🚨", health:"🏥", other:"📌" };
 
-// Mock reports — replace with real API fetch by user ID
-const MOCK_REPORTS = [
-  { id:"CS1A2B3C", issue:"water",       ward:"Bandra",  city:"Mumbai",   date:"2 days ago",  status:"resolved",    desc:"No water supply for 3 days" },
-  { id:"CS4D5E6F", issue:"road",        ward:"Andheri", city:"Mumbai",   date:"Today",       status:"submitted",   desc:"Large pothole on main road" },
-  { id:"CS7G8H9I", issue:"electricity", ward:"Dharavi", city:"Mumbai",   date:"Yesterday",   status:"in_progress", desc:"Street light not working" },
-];
 
 function LangModal({ current, onChange, onClose, lang="en" }) {
   return (
@@ -59,11 +53,29 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
   const [tab, setTab]             = useState("report");   // report | myreports
   const [alerts, setAlerts]       = useState([]);
   const [connected, setConnected] = useState(false);
+  const [reports, setReports]     = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
 
   const li   = LANGS.find(l=>l.code===lang) || LANGS[0];
   const GREEN = "#22c55e";
 
   // Fetch alerts to show a banner if any exist
+  useEffect(() => {
+    if (tab === "myreports") {
+      setReportsLoading(true);
+      fetch(API + "/events")
+        .then(r=>r.json())
+        .then(d=>{
+          const all = Array.isArray(d) ? d : (d.events || []);
+          // Filter by user if not guest
+          const userReports = user.guest ? all : all.filter(e => e.user_id === user.uid || !e.user_id);
+          setReports(userReports.slice(0,20));
+        })
+        .catch(()=>setReports([]))
+        .finally(()=>setReportsLoading(false));
+    }
+  }, [tab, user]);
+
   useEffect(() => {
     fetch(API + "/alerts")
       .then(r=>r.json())
@@ -218,32 +230,41 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
               </button>
             </div>
 
-            {MOCK_REPORTS.length === 0 ? (
+            {reportsLoading ? (
+              <div style={{textAlign:"center",padding:"48px 20px",color:"rgba(134,239,172,.38)",fontSize:14}}>Loading reports...</div>
+            ) : reports.length === 0 ? (
               <div style={{textAlign:"center",padding:"48px 20px",color:"rgba(134,239,172,.38)",fontSize:14,lineHeight:1.7}}>{tl(lang,"noReports")}</div>
             ) : (
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                {MOCK_REPORTS.map((r,i)=>{
-                  const sc = STATUS_COLOR[r.status] || GREEN;
-                  const pct = progressPct(r.status);
+                {reports.map((r,i)=>{
+                  const issue = r.issue || r.category || r.type || "general";
+                  const status = r.status || "submitted";
+                  const sc = STATUS_COLOR[status] || GREEN;
+                  const pct = progressPct(status);
+                  const city = r.city || r.location || "—";
+                  const ward = r.ward || city;
+                  const desc = r.text || r.desc || r.description || "";
+                  const date = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : r.date || "Recent";
+                  const rid = r.id || r._id || r.report_id || ("CS"+i);
                   return (
-                    <div key={r.id} style={{background:"rgba(4,20,10,.9)",border:`1px solid rgba(34,197,94,.1)`,borderLeft:`3px solid ${sc}`,borderRadius:14,padding:"15px 16px",animation:`fadeUp .3s ease ${i*.07}s both`}}
+                    <div key={rid} style={{background:"rgba(4,20,10,.9)",border:`1px solid rgba(34,197,94,.1)`,borderLeft:`3px solid ${sc}`,borderRadius:14,padding:"15px 16px",animation:`fadeUp .3s ease ${i*.07}s both`}}
                       onMouseEnter={e=>e.currentTarget.style.borderColor=`${sc}40`}
                       onMouseLeave={e=>e.currentTarget.style.borderColor="rgba(34,197,94,.1)"}>
                       {/* Header row */}
                       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8}}>
                         <div style={{display:"flex",alignItems:"center",gap:9}}>
-                          <span style={{fontSize:20}}>{ISSUE_ICONS[r.issue]||"📌"}</span>
-                          <span style={{fontSize:14,fontWeight:700,color:"#d1fae5",textTransform:"capitalize"}}>{r.issue}</span>
+                          <span style={{fontSize:20}}>{ISSUE_ICONS[issue]||"📌"}</span>
+                          <span style={{fontSize:14,fontWeight:700,color:"#d1fae5",textTransform:"capitalize"}}>{issue}</span>
                         </div>
                         <span style={{fontSize:11,fontWeight:700,color:sc,background:`${sc}18`,border:`1px solid ${sc}38`,borderRadius:20,padding:"3px 11px"}}>
-                          {tl(lang,"status_"+r.status)}
+                          {tl(lang,"status_"+status)}
                         </span>
                       </div>
                       {/* Description */}
-                      <div style={{fontSize:13,color:"rgba(187,247,208,.55)",marginBottom:10,lineHeight:1.5}}>{r.desc}</div>
+                      <div style={{fontSize:13,color:"rgba(187,247,208,.55)",marginBottom:10,lineHeight:1.5}}>{desc}</div>
                       {/* Meta */}
                       <div style={{display:"flex",gap:14,marginBottom:10}}>
-                        {[[tl(lang,"ward"),r.ward],[tl(lang,"city"),r.city],[tl(lang,"date"),r.date]].map(([l,v])=>(
+                        {[[tl(lang,"ward"),ward],[tl(lang,"city"),city],[tl(lang,"date"),date]].map(([l,v])=>(
                           <div key={l}><div style={{fontSize:9,color:"rgba(134,239,172,.3)"}}>{l}</div><div style={{fontSize:11,color:"rgba(187,247,208,.7)",fontWeight:600}}>{v}</div></div>
                         ))}
                       </div>
@@ -255,7 +276,7 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
                         <span style={{fontSize:10,color:sc,fontFamily:"'DM Mono',monospace",minWidth:30}}>{pct}%</span>
                       </div>
                       {/* ID */}
-                      <div style={{marginTop:7,fontSize:9.5,color:"rgba(134,239,172,.25)",fontFamily:"'DM Mono',monospace"}}>{tl(lang,"reportId")}: {r.id}</div>
+                      <div style={{marginTop:7,fontSize:9.5,color:"rgba(134,239,172,.25)",fontFamily:"'DM Mono',monospace"}}>{tl(lang,"reportId")}: {rid}</div>
                     </div>
                   );
                 })}
