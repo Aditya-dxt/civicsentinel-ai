@@ -246,9 +246,3 @@ Enable WebSocket support
 If you found this project useful, please ⭐ the repo:
 https://github.com/Aditya-dxt/civicsentinel-ai
 ```
-If you want, I can next:
-- 🔥 Make this README **more “GitHub viral” (badges, visuals, animations)**
-- 🎯 Add **architecture diagram image**
-- 💼 Optimize it for **resume / recruiter impact**
-
-Just tell me 👍
