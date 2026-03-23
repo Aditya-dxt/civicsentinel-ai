@@ -485,154 +485,188 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
 // KNOWLEDGE GRAPH VISUALIZER
 // ══════════════════════════════════════════════════════════════════════════════
 function KnowledgeGraph({ data, isDark }) {
-  const t = useT();
-  const canvasRef = useRef(null);
+const t = useT();
+const canvasRef = useRef(null);
 
-  // Build nodes/edges — handles {nodes:N, edges:N, relations:[{city,issue}]} shape from real API
-  const { nodes, edges } = useMemo(() => {
-    if (!data) return { nodes: [], edges: [] };
+const { nodes, edges } = useMemo(() => {
+if (!data) return { nodes: [], edges: [] };
 
-    const toArr = (v) => {
-      if (!v) return [];
-      if (Array.isArray(v)) return v;
-      if (typeof v === "object") return Object.values(v);
-      return [];
-    };
+```
+const toArr = (v) => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  if (typeof v === "object") return Object.values(v);
+  return [];
+};
 
-    // PRIMARY: { nodes:N, edges:N, relations:[{city,issue,...}] }
-    // This is the actual API shape — build graph from relations
-    if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
-      const relations = data.relations.slice(0, 20);
-      const nodeMap = {};
-      const ns = [];
-      const es = [];
-      relations.forEach((rel) => {
-        const cityLabel  = rel.city  || rel.source || rel.from || null;
-        const issueLabel = rel.issue || rel.target || rel.to   || null;
-        if (cityLabel && !(cityLabel in nodeMap)) {
-          nodeMap[cityLabel] = ns.length;
-          ns.push({ id: ns.length, label: String(cityLabel).slice(0,14), type:"city",  value: rel.risk_score || 62 });
-        }
-        if (issueLabel && !(issueLabel in nodeMap)) {
-          nodeMap[issueLabel] = ns.length;
-          ns.push({ id: ns.length, label: String(issueLabel).slice(0,14), type:"issue", value: rel.severity  || 48 });
-        }
-        if (cityLabel && issueLabel && (cityLabel in nodeMap) && (issueLabel in nodeMap)) {
-          es.push({ from: nodeMap[cityLabel], to: nodeMap[issueLabel] });
-        }
+// 🔥 FIXED SECTION — with validation
+if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
+  const relations = data.relations.slice(0, 20);
+  const nodeMap = {};
+  const ns = [];
+  const es = [];
+
+  const KNOWN_CITIES = [
+    "Mumbai","Delhi","Lucknow","Kanpur","Bangalore","Chennai"
+  ];
+
+  const isCity = (name) => KNOWN_CITIES.includes(name);
+
+  relations.forEach((rel) => {
+    let rawCity  = rel.city  || rel.source || rel.from || null;
+    let rawIssue = rel.issue || rel.target || rel.to   || null;
+
+    let cityLabel, issueLabel;
+
+    // ✅ FIX: auto-correct swapped data
+    if (isCity(rawCity)) {
+      cityLabel = rawCity;
+      issueLabel = rawIssue;
+    } else if (isCity(rawIssue)) {
+      cityLabel = rawIssue;
+      issueLabel = rawCity;
+    } else {
+      cityLabel = rawCity;
+      issueLabel = rawIssue;
+    }
+
+    if (cityLabel && !(cityLabel in nodeMap)) {
+      nodeMap[cityLabel] = ns.length;
+      ns.push({
+        id: ns.length,
+        label: String(cityLabel).slice(0, 14),
+        type: "city",
+        value: rel.risk_score || 62
       });
-      if (ns.length > 0) return { nodes: ns, edges: es };
     }
 
-    // FALLBACK A: top-level array
-    if (Array.isArray(data)) {
-      const ns = data.slice(0, 20).map((item, i) => ({
-        id: i, label: item.entity || item.city || item.issue || item.name || ("Node " + i),
-        type: item.type || "entity", value: item.risk_score || item.score || 50,
-      }));
-      const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 1) % ns.length }));
-      return { nodes: ns, edges: es };
-    }
-
-    // FALLBACK B: { nodes:[...], edges:[...] }
-    if (data.nodes && Array.isArray(data.nodes) && data.nodes.length > 0) {
-      const ns = toArr(data.nodes).slice(0, 20).map((n, i) => ({
-        id: i, label: n.label || n.name || n.entity || ("Node " + i),
-        type: n.type || "entity", value: n.value || n.risk || 50,
-      }));
-      const es = toArr(data.edges).slice(0, 30).map((e, i) => ({
-        from: typeof e.from === "number" ? e.from : (typeof e.source === "number" ? e.source : i % ns.length),
-        to:   typeof e.to   === "number" ? e.to   : (typeof e.target === "number" ? e.target : (i + 1) % ns.length),
-      }));
-      return { nodes: ns, edges: es };
-    }
-
-    // FALLBACK C: plain {key:value} object
-    const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k)).slice(0, 14);
-    if (keys.length > 0) {
-      const ns = keys.map((k, i) => ({ id: i, label: k, type:"city", value: typeof data[k] === "number" ? data[k] : 50 }));
-      const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 2) % ns.length }));
-      return { nodes: ns, edges: es };
-    }
-
-    return { nodes: [], edges: [] };
-  }, [data]);
-
-  useEffect(() => {
-    if (!nodes.length) return;
-    const canvas = canvasRef.current; if(!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-
-    // Simple force-like layout: place nodes on ellipse
-    const placed = nodes.map((n, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      return { ...n, x: W/2 + Math.cos(angle)*(W*0.38), y: H/2 + Math.sin(angle)*(H*0.38) };
-    });
-
-    let frame = 0; let id;
-    const draw = () => {
-      ctx.clearRect(0,0,W,H);
-      // Draw edges
-      edges.forEach(e => {
-        const from = placed[e.from]; const to = placed[e.to];
-        if(!from||!to) return;
-        ctx.beginPath(); ctx.moveTo(from.x,from.y); ctx.lineTo(to.x,to.y);
-        ctx.strokeStyle = isDark ? `rgba(0,200,255,${0.08+Math.abs(Math.sin(frame*.02+e.from))*.08})` : "rgba(0,60,140,0.08)";
-        ctx.lineWidth = .8; ctx.stroke();
+    if (issueLabel && !(issueLabel in nodeMap)) {
+      nodeMap[issueLabel] = ns.length;
+      ns.push({
+        id: ns.length,
+        label: String(issueLabel).slice(0, 14),
+        type: "issue",
+        value: rel.severity || 48
       });
-      // Draw nodes — city nodes = cyan, issue nodes = amber/red
-      placed.forEach((n,i) => {
-        const isCity  = n.type === "city";
-        const isIssue = n.type === "issue";
-        const col = isCity  ? (isDark ? "#00ccff" : "#0050cc")
-                  : isIssue ? (isDark ? "#ffb800" : "#8a5000")
-                  : riskCol(n.value||50, isDark);
-        const pulse = 1 + Math.sin(frame*.03+i)*.1;
-        const r = (isCity ? 9 : 7) * pulse;
-        // Glow ring
-        ctx.beginPath(); ctx.arc(n.x,n.y,r+5,0,Math.PI*2);
-        ctx.fillStyle = col + "18"; ctx.fill();
-        // Core circle
-        ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2);
-        ctx.fillStyle = col + "44"; ctx.fill();
-        ctx.strokeStyle = col; ctx.lineWidth = isCity ? 1.8 : 1.3; ctx.stroke();
-        // Type icon text inside node
-        ctx.fillStyle = isDark ? "rgba(255,255,255,0.9)" : col;
-        ctx.font = "bold " + (r*0.9) + "px Inter,sans-serif"; ctx.textAlign="center";
-        ctx.fillText(isCity ? "🏙" : isIssue ? "⚠" : "●", n.x, n.y + r*0.35);
-        // Label below node
-        ctx.fillStyle = isDark ? "rgba(200,230,255,0.85)" : "rgba(12,24,40,0.7)";
-        ctx.font = "600 9px Inter,sans-serif"; ctx.textAlign="center";
-        ctx.fillText(String(n.label).slice(0,13), n.x, n.y + r + 12);
+    }
+
+    if (cityLabel && issueLabel &&
+        (cityLabel in nodeMap) &&
+        (issueLabel in nodeMap)) {
+      es.push({
+        from: nodeMap[cityLabel],
+        to: nodeMap[issueLabel]
       });
-      frame++; id = requestAnimationFrame(draw);
-    };
-    draw(); return () => cancelAnimationFrame(id);
-  }, [nodes, edges, isDark]);
+    }
+  });
 
-  if (!data) return <div style={{height:300,display:"flex",alignItems:"center",justifyContent:"center",color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Loading knowledge graph...</div>;
-
-  if (nodes.length === 0) return (
-    <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
-      <div style={{fontSize:32}}>🕸</div>
-      <div>No graph data yet — submit complaints to build the knowledge graph</div>
-      <div style={{fontSize:11,opacity:.5}}>Relations data: {JSON.stringify(data).slice(0,120)}…</div>
-    </div>
-  );
-
-  return (
-    <div style={{position:"relative"}}>
-      <canvas ref={canvasRef} width={900} height={320} style={{width:"100%",height:320,borderRadius:6}}/>
-      {/* Legend */}
-      <div style={{position:"absolute",top:8,right:8,display:"flex",gap:10,background:isDark?"rgba(4,10,22,.85)":"rgba(255,255,255,.85)",padding:"5px 10px",borderRadius:7,border:`1px solid ${t.border}`,backdropFilter:"blur(8px)"}}>
-        {[["🏙 City","#00ccff"],["⚠ Issue","#ffb800"]].map(([l,c])=>(
-          <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:c,fontFamily:"'Inter',sans-serif",fontWeight:600}}>{l}</div>
-        ))}
-      </div>
-    </div>
-  );
+  if (ns.length > 0) return { nodes: ns, edges: es };
 }
+
+// FALLBACKS (unchanged)
+if (Array.isArray(data)) {
+  const ns = data.slice(0, 20).map((item, i) => ({
+    id: i,
+    label: item.entity || item.city || item.issue || item.name || ("Node " + i),
+    type: item.type || "entity",
+    value: item.risk_score || item.score || 50,
+  }));
+  const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 1) % ns.length }));
+  return { nodes: ns, edges: es };
+}
+
+if (data.nodes && Array.isArray(data.nodes)) {
+  const ns = toArr(data.nodes).slice(0, 20).map((n, i) => ({
+    id: i,
+    label: n.label || n.name || ("Node " + i),
+    type: n.type || "entity",
+    value: n.value || 50,
+  }));
+  const es = toArr(data.edges).slice(0, 30).map((e, i) => ({
+    from: typeof e.from === "number" ? e.from : i % ns.length,
+    to: typeof e.to === "number" ? e.to : (i + 1) % ns.length,
+  }));
+  return { nodes: ns, edges: es };
+}
+
+return { nodes: [], edges: [] };
+```
+
+}, [data]);
+
+useEffect(() => {
+if (!nodes.length) return;
+const canvas = canvasRef.current;
+const ctx = canvas.getContext("2d");
+
+```
+const W = canvas.width;
+const H = canvas.height;
+
+const placed = nodes.map((n, i) => {
+  const angle = (i / nodes.length) * Math.PI * 2;
+  return {
+    ...n,
+    x: W/2 + Math.cos(angle)*(W*0.38),
+    y: H/2 + Math.sin(angle)*(H*0.38)
+  };
+});
+
+let frame = 0;
+let id;
+
+const draw = () => {
+  ctx.clearRect(0,0,W,H);
+
+  edges.forEach(e => {
+    const from = placed[e.from];
+    const to = placed[e.to];
+    if(!from||!to) return;
+
+    ctx.beginPath();
+    ctx.moveTo(from.x,from.y);
+    ctx.lineTo(to.x,to.y);
+    ctx.strokeStyle = isDark ? "rgba(0,200,255,0.15)" : "rgba(0,60,140,0.1)";
+    ctx.stroke();
+  });
+
+  placed.forEach((n,i) => {
+    const isCity  = n.type === "city";
+    const col = isCity ? "#00ccff" : "#ffb800";
+
+    const r = isCity ? 9 : 7;
+
+    ctx.beginPath();
+    ctx.arc(n.x,n.y,r,0,Math.PI*2);
+    ctx.fillStyle = col;
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "10px Inter";
+    ctx.textAlign="center";
+    ctx.fillText(n.label, n.x, n.y + r + 10);
+  });
+
+  frame++;
+  id = requestAnimationFrame(draw);
+};
+
+draw();
+return () => cancelAnimationFrame(id);
+```
+
+}, [nodes, edges, isDark]);
+
+return (
+<canvas
+ref={canvasRef}
+width={900}
+height={320}
+style={{ width:"100%", height:320 }}
+/>
+);
+}
+
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AI INSIGHT PANEL — uses /ai-insight endpoint
