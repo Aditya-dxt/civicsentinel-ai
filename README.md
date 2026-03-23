@@ -1,70 +1,254 @@
-# Getting Started with Create React App
+# 🧠 CivicSentinel AI
+### Civic Intelligence & Risk Monitoring System
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+CivicSentinel AI is a **full-stack AI-powered civic intelligence platform** that enables citizens to report issues and empowers authorities with **real-time monitoring, risk analysis, and predictive insights**.
 
-## Available Scripts
+It bridges the gap between **citizen signals → AI processing → government action**.
 
-In the project directory, you can run:
+---
 
-### `npm start`
+# 🌐 Live Applications
+```text
+- 🚀 Citizen App: https://civicsentinel-ai-pszx.onrender.com
+- 🛠 Admin Dashboard: https://civicsentinel-admin.onrender.com
+- 🔗 Backend API: https://civicsentinel-ai-1.onrender.com
+- 📘 Swagger Docs: https://civicsentinel-ai-1.onrender.com/docs
+```
+---
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+# 👤 Author
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+**Aditya Dixit**
+**Vaibhav Tripathi**
 
-### `npm test`
+# GitHub
+```text
+https://github.com/Aditya-dxt
+```
+---
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+# 🧩 System Overview
 
-### `npm run build`
+CivicSentinel AI consists of:
+```text
+### 🖥 Frontend (React)
+- Citizen Reporting App
+- Admin Intelligence Dashboard
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### ⚙ Backend (FastAPI)
+- AI processing pipelines
+- Risk scoring & predictions
+- Real-time APIs & WebSockets
+```
+---
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+# 🏗 Complete Architecture
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```text
+Citizen Reports / Civic Data
+            │
+            ▼
+    React Frontend Apps
+ (Citizen + Admin Dashboard)
+            │
+            ▼
+     FastAPI Backend API
+            │
+ ┌──────────┼──────────┐
+ ▼          ▼          ▼
+NLP     Anomaly    Risk Engine
+        Detection
+            │
+            ▼
+     Intelligence Layer
+ (Alerts | Trends | Predictions)
+            │
+            ▼
+   Knowledge Graph + RAG
+            │
+            ▼
+       AI Insights APIs
+```
 
-### `npm run eject`
+# 📁 Project Structure
+```text
+civicsentinel-ai/
+│
+├── frontend/
+│   ├── citizen-app/      # Citizen reporting app (React)
+│   └── admin-app/        # Admin dashboard (React)
+│
+├── backend/
+│   ├── app/
+│   ├── models/
+│   ├── services/
+│   ├── rag/
+│   ├── streaming/
+│   └── main.py
+│
+└── README.md
+```
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+# 🚀 Features
+```text
+👥 Citizen App
+📸 AI-powered issue detection (image upload)
+📍 GPS + manual location support
+🌍 Multi-language support (6 languages)
+🧾 5-step reporting system
+🔐 Firebase authentication (Google + Email)
+📊 My Reports (real backend data)
+🛠 Admin Dashboard
+📊 KPI metrics & analytics
+🗺 India risk heatmap (45+ cities)
+📈 Issue trends & predictions
+🚨 AI alert feed
+🤖 AI Civic Copilot (chat interface)
+🔴 Real-time event streaming (WebSockets)
+🧠 Knowledge Graph visualization
+⚙ Backend (AI Engine)
+⚡ FastAPI async APIs
+📡 Real-time event streaming
+🧠 Sentiment analysis (TextBlob)
+🔍 Anomaly detection
+📊 Risk scoring engine
+🔗 Knowledge graph (NetworkX)
+📦 RAG pipeline (ChromaDB + LangChain)
+🤖 LLM insights (OpenAI)
+🔄 AI Processing Pipeline
+Civic Event
+    ↓
+FastAPI Ingestion
+    ↓
+Sentiment Analysis
+    ↓
+Anomaly Detection
+    ↓
+Risk Scoring
+    ↓
+Knowledge Graph Update
+    ↓
+RAG + LLM Processing
+    ↓
+AI Insight Output
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+# 📡 API Endpoints
+```text
+Core
+GET /health
+GET /
+Events
+GET /events
+POST /report-complaint
+Analytics
+GET /risk-summary
+GET /issue-trends
+GET /alerts
+GET /predictions
+AI
+GET /ai-insight
+GET /ai-civic-copilot
+GET /knowledge-graph
+Streaming
+WSS /ws/events
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+# 🧪 Running Locally
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+# Citizen App
+```text
+cd frontend/citizen-app
+npm install
+npm start
+```
+# Admin App (new terminal)
+### Frontend
+```text
+cd frontend/admin-app
+npm install
+npm start
+```
+### Backend
+```text
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
-## Learn More
+# ⚙ Tech Stack
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### Frontend
+```text
+React 18 (CRA)
+Firebase Auth
+Leaflet.js (Maps)
+Recharts (Charts)
+OpenStreetMap (Geocoding)
+```
+### Backend
+```text
+FastAPI
+Uvicorn
+AsyncIO
+WebSockets
+AI / ML
+OpenAI GPT
+LangChain
+ChromaDB
+TextBlob
+NetworkX
+ONNX Runtime
+Infrastructure
+Render (Deployment)
+```
+# GitHub (Version Control)
+```text
+🌍 Key Capabilities
+📡 Real-time civic monitoring
+📊 Risk intelligence scoring
+🚨 Automated alerts & predictions
+🧠 AI-powered governance insights
+🔗 Knowledge graph relationships
+💬 Natural language civic copilot
+```
+# ⚠ Known Issues
+```text
+GPS inaccuracies (browser caching / VPN)
+Backend cold start (Render free tier)
+AI image scan exposed client-side (needs backend proxy)
+User-specific report filtering requires backend update
+```
+# 🚀 Deployment (Render)
+### Frontend
+```text
+Build: npm install && npm run build
+Publish: build
+```
+### Backend
+```text
+Deploy FastAPI service
+Enable WebSocket support
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+# 🔮 Future Roadmap
+```text
+• Mobile app release
+• IoT integration
+• Geo-fencing alerts
+• Advanced ML models
+• Multi-city scaling
+• Government system integration
+```
 
-### Code Splitting
+# ⭐ Support
+```text
+If you found this project useful, please ⭐ the repo:
+https://github.com/Aditya-dxt/civicsentinel-ai
+```
+If you want, I can next:
+- 🔥 Make this README **more “GitHub viral” (badges, visuals, animations)**
+- 🎯 Add **architecture diagram image**
+- 💼 Optimize it for **resume / recruiter impact**
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+Just tell me 👍
