@@ -1,11 +1,7 @@
-import { useState } from "react";
-import { LANGS, T, tl } from "./translations";
+import { useState, useEffect } from "react";
+import { LANGS, tl } from "./translations";
 
-// ═══════════════════════════════════════════════════════════
-// CITIZEN PROFILE PAGE
-// Shows: Avatar, Name, Email, Language, My Reports, Logout
-// ═══════════════════════════════════════════════════════════
-
+const API = "https://civicsentinel-ai-1.onrender.com";
 
 const STATUS_COLOR = {
   submitted:   { bg:"rgba(59,130,246,0.15)", border:"rgba(59,130,246,0.5)", text:"#93c5fd", dot:"#3b82f6" },
@@ -14,36 +10,44 @@ const STATUS_COLOR = {
   rejected:    { bg:"rgba(239,68,68,0.15)",  border:"rgba(239,68,68,0.5)",  text:"#fca5a5", dot:"#ef4444" },
 };
 
-const MOCK_REPORTS = [
-  { id:"R001", issue:"Pothole on main road", location:"Bandra West, Mumbai", status:"status_in_progress2", date:"2026-03-05", ward:"Ward 47" },
-  { id:"R002", issue:"Water supply disruption", location:"Andheri East, Mumbai", status:"status_submitted2",   date:"2026-03-06", ward:"Ward 82" },
-  { id:"R003", issue:"Street light not working", location:"Kurla, Mumbai",        status:"status_resolved2",    date:"2026-02-28", ward:"Ward 61" },
-];
-
-
-
 export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser }) {
-  const lang = user.lang || "en";
+  const lang  = user.lang || "en";
   const GREEN = "#22c55e";
 
-  const [editing, setEditing]     = useState(false);
-  const [editName, setEditName]   = useState(user.name || "");
-  const [editLang, setEditLang]   = useState(lang);
-  const [showLangPicker, setShowLangPicker] = useState(false);
-  const [saved, setSaved]         = useState(false);
+  const [editing, setEditing]               = useState(false);
+  const [editName, setEditName]             = useState(user.name || "");
+  const [editLang, setEditLang]             = useState(lang);
+  const [saved, setSaved]                   = useState(false);
+  const [reports, setReports]               = useState([]);
+  const [reportsLoading, setReportsLoading] = useState(false);
 
-  const avatarLetters = (user.name || "G").slice(0,2).toUpperCase();
+  useEffect(() => {
+    if (user.guest) return;
+    setReportsLoading(true);
+    fetch(`${API}/events`)
+      .then(r => r.json())
+      .then(d => {
+        const all = Array.isArray(d) ? d : (d.events || []);
+        setReports(all.slice(0, 15));
+      })
+      .catch(() => setReports([]))
+      .finally(() => setReportsLoading(false));
+  }, [user.uid, user.guest]);
+
+  const avatarLetters = (user.name || "G").slice(0, 2).toUpperCase();
 
   const handleSave = () => {
-    const updated = { ...user, name: editName.trim() || user.name, lang: editLang,
-      avatar: (editName.trim() || user.name).slice(0,2).toUpperCase() };
+    const updated = {
+      ...user,
+      name:   editName.trim() || user.name,
+      lang:   editLang,
+      avatar: (editName.trim() || user.name).slice(0, 2).toUpperCase(),
+    };
     onUpdateUser(updated);
     setEditing(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
-
-  const reports = user.reports || MOCK_REPORTS;
 
   return (
     <div style={{
@@ -51,6 +55,8 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
       fontFamily:"'Inter',sans-serif", color:"#e2e8f0",
       display:"flex", flexDirection:"column",
     }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
       {/* Header */}
       <div style={{
         display:"flex", alignItems:"center", justifyContent:"space-between",
@@ -71,58 +77,48 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
         {!editing ? (
           <button onClick={() => setEditing(true)} style={{
             background:"none", border:"1px solid rgba(34,197,94,0.3)",
-            color:GREEN, borderRadius:8, padding:"7px 14px",
-            fontSize:13, cursor:"pointer",
+            color:GREEN, borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer",
           }}>
             ✏️ {tl(lang,"editProfile")}
           </button>
         ) : (
           <button onClick={() => setEditing(false)} style={{
             background:"none", border:"1px solid rgba(239,68,68,0.3)",
-            color:"#f87171", borderRadius:8, padding:"7px 14px",
-            fontSize:13, cursor:"pointer",
+            color:"#f87171", borderRadius:8, padding:"7px 14px", fontSize:13, cursor:"pointer",
           }}>
             {tl(lang,"cancel")}
           </button>
         )}
       </div>
 
+      {/* Content */}
       <div style={{ flex:1, overflowY:"auto", padding:"24px 20px 40px", maxWidth:480, margin:"0 auto", width:"100%" }}>
 
-        {/* Avatar + Name Card */}
+        {/* Avatar + Info */}
         <div style={{
           background:"rgba(255,255,255,0.04)", border:"1px solid rgba(34,197,94,0.2)",
-          borderRadius:16, padding:"28px 20px", textAlign:"center", marginBottom:20,
-          position:"relative",
+          borderRadius:16, padding:"28px 20px", textAlign:"center", marginBottom:20, position:"relative",
         }}>
-          {/* Avatar circle */}
           <div style={{
             width:80, height:80, borderRadius:"50%",
-            background:`linear-gradient(135deg, ${GREEN}33, ${GREEN}88)`,
-            border:`3px solid ${GREEN}`,
-            display:"flex", alignItems:"center", justifyContent:"center",
-            margin:"0 auto 14px", fontSize:28, fontWeight:800, color:"#fff",
-            boxShadow:`0 0 24px ${GREEN}44`,
+            background:`linear-gradient(135deg,${GREEN}33,${GREEN}88)`,
+            border:`3px solid ${GREEN}`, display:"flex", alignItems:"center",
+            justifyContent:"center", margin:"0 auto 14px",
+            fontSize:28, fontWeight:800, color:"#fff", boxShadow:`0 0 24px ${GREEN}44`,
           }}>
             {avatarLetters}
           </div>
 
-          {/* Provider badge */}
           {user.guest ? (
-            <div style={{ fontSize:11, color:"#94a3b8", marginBottom:8 }}>
-              👤 {tl(lang,"guestUser")}
-            </div>
+            <div style={{ fontSize:11, color:"#94a3b8", marginBottom:8 }}>👤 {tl(lang,"guestUser")}</div>
           ) : (
             <div style={{ fontSize:11, color:GREEN, marginBottom:4 }}>
               {user.provider === "google" ? tl(lang,"accountType_google") : tl(lang,"accountType_email")}
             </div>
           )}
 
-          {/* Name */}
           {editing ? (
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
+            <input value={editName} onChange={e => setEditName(e.target.value)}
               placeholder={tl(lang,"fullName")}
               style={{
                 background:"rgba(255,255,255,0.07)", border:`1.5px solid ${GREEN}55`,
@@ -132,36 +128,31 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
               }}
             />
           ) : (
-            <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:4 }}>
-              {user.name}
-            </div>
+            <div style={{ fontSize:22, fontWeight:800, color:"#fff", marginBottom:4 }}>{user.name}</div>
           )}
 
-          {/* Email */}
           <div style={{ fontSize:13, color:"#94a3b8" }}>
             {user.guest ? tl(lang,"guestNote") : user.email}
           </div>
 
-          {/* Joined date */}
           {user.joinedAt && !user.guest && (
             <div style={{ fontSize:11, color:"#64748b", marginTop:8 }}>
-              {tl(lang,"memberSince")}: {new Date(user.joinedAt).toLocaleDateString("en-IN", {year:"numeric",month:"long",day:"numeric"})}
+              {tl(lang,"memberSince")}: {new Date(user.joinedAt).toLocaleDateString("en-IN",{year:"numeric",month:"long",day:"numeric"})}
             </div>
           )}
 
-          {/* Saved flash */}
           {saved && (
             <div style={{
               position:"absolute", top:12, right:12,
               background:"rgba(34,197,94,0.2)", border:"1px solid #22c55e",
               borderRadius:8, padding:"4px 10px", fontSize:12, color:GREEN,
             }}>
-              ✓ Saved!
+              ✓ {tl(lang,"savedSuccess")}
             </div>
           )}
         </div>
 
-        {/* Language Preference */}
+        {/* Language */}
         <div style={{
           background:"rgba(255,255,255,0.04)", border:"1px solid rgba(34,197,94,0.15)",
           borderRadius:14, padding:"16px 18px", marginBottom:20,
@@ -185,21 +176,17 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
             </div>
           ) : (
             <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-              <span style={{ fontSize:22 }}>
-                {LANGS.find(l=>l.code===(user.lang||"en"))?.flag}
-              </span>
-              <span style={{ fontSize:15, fontWeight:600, color:"#e2e8f0" }}>
-                {LANGS.find(l=>l.code===(user.lang||"en"))?.native}
-              </span>
+              <span style={{ fontSize:22 }}>{LANGS.find(l => l.code===(user.lang||"en"))?.flag}</span>
+              <span style={{ fontSize:15, fontWeight:600, color:"#e2e8f0" }}>{LANGS.find(l => l.code===(user.lang||"en"))?.native}</span>
             </div>
           )}
         </div>
 
-        {/* Save button when editing */}
+        {/* Save button */}
         {editing && (
           <button onClick={handleSave} style={{
             width:"100%", padding:"14px", borderRadius:12, fontSize:15, fontWeight:700,
-            background:`linear-gradient(135deg, ${GREEN}, #16a34a)`,
+            background:`linear-gradient(135deg,${GREEN},#16a34a)`,
             color:"#fff", border:"none", cursor:"pointer", marginBottom:20,
             boxShadow:`0 4px 20px ${GREEN}44`,
           }}>
@@ -216,40 +203,52 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
             {tl(lang,"myComplaints")} ({reports.length})
           </div>
 
-          {reports.length === 0 ? (
+          {reportsLoading ? (
+            <div style={{ textAlign:"center", padding:"24px 0", display:"flex", flexDirection:"column", alignItems:"center", gap:10 }}>
+              <div style={{ width:24, height:24, border:"2px solid rgba(34,197,94,.2)", borderTopColor:GREEN, borderRadius:"50%", animation:"spin .7s linear infinite" }}/>
+              <span style={{ fontSize:13, color:"rgba(134,239,172,.4)" }}>Loading...</span>
+            </div>
+          ) : reports.length === 0 ? (
             <div style={{ textAlign:"center", color:"#475569", fontSize:14, padding:"20px 0" }}>
               {tl(lang,"noComplaints")}
             </div>
           ) : (
             <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
-              {reports.map(r => {
-                const sc = STATUS_COLOR[r.status] || STATUS_COLOR.submitted;
+              {reports.map((r, i) => {
+                const status = r.status || "submitted";
+                const sc     = STATUS_COLOR[status] || STATUS_COLOR.submitted;
+                const issue  = r.issue || r.text || "Civic Issue";
+                const loc    = r.location || r.city || "—";
+                const date   = r.created_at
+                  ? new Date(r.created_at).toLocaleDateString("en-IN")
+                  : r.date || "Recent";
+                const rid    = r.id || r._id || r.report_id || `CS${i}`;
                 return (
-                  <div key={r.id} style={{
-                    background: sc.bg, border:`1px solid ${sc.border}`,
+                  <div key={rid} style={{
+                    background:sc.bg, border:`1px solid ${sc.border}`,
                     borderRadius:10, padding:"12px 14px",
                   }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:6 }}>
                       <div style={{ fontSize:14, fontWeight:600, color:"#e2e8f0", flex:1, marginRight:8 }}>
-                        {r.issue}
+                        {issue}
                       </div>
                       <div style={{
                         display:"flex", alignItems:"center", gap:5,
-                        background: sc.bg, border:`1px solid ${sc.border}`,
+                        background:sc.bg, border:`1px solid ${sc.border}`,
                         borderRadius:20, padding:"2px 8px", whiteSpace:"nowrap",
                       }}>
                         <div style={{ width:6, height:6, borderRadius:"50%", background:sc.dot }}/>
                         <span style={{ fontSize:11, color:sc.text, fontWeight:600 }}>
-                          {tl(lang, 'status_' + r.status + '2')}
+                          {tl(lang,"status_"+status)}
                         </span>
                       </div>
                     </div>
                     <div style={{ fontSize:12, color:"#64748b", display:"flex", gap:12 }}>
-                      <span>📍 {r.location}</span>
-                      <span>🗓 {r.date}</span>
+                      <span>📍 {loc}</span>
+                      <span>🗓 {date}</span>
                     </div>
                     <div style={{ fontSize:11, color:"#475569", marginTop:4 }}>
-                      #{r.id} · {r.ward}
+                      #{rid} · {r.ward || loc}
                     </div>
                   </div>
                 );
@@ -258,15 +257,13 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
           )}
         </div>
 
-        {/* Stats row */}
+        {/* Stats */}
         {!user.guest && (
-          <div style={{
-            display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:20,
-          }}>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:10, marginBottom:20 }}>
             {[
-              { label:tl(lang,"total"), value: reports.length, color:"#60a5fa" },
-              { label:tl(lang,"resolved"), value: reports.filter(r=>r.status==="status_resolved2").length, color:GREEN },
-              { label:tl(lang,"pending"), value: reports.filter(r=>r.status!=="status_resolved2").length, color:"#fbbf24" },
+              { label:tl(lang,"total"),    value:reports.length,                                     color:"#60a5fa" },
+              { label:tl(lang,"resolved"), value:reports.filter(r=>r.status==="resolved").length,    color:GREEN },
+              { label:tl(lang,"pending"),  value:reports.filter(r=>r.status!=="resolved").length,    color:"#fbbf24" },
             ].map(s => (
               <div key={s.label} style={{
                 background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)",
@@ -279,15 +276,14 @@ export default function CitizenProfile({ user, onBack, onLogout, onUpdateUser })
           </div>
         )}
 
-        {/* Logout button */}
+        {/* Logout */}
         <button onClick={onLogout} style={{
           width:"100%", padding:"14px", borderRadius:12, fontSize:15, fontWeight:700,
           background:"rgba(239,68,68,0.1)", color:"#f87171",
-          border:"1px solid rgba(239,68,68,0.3)", cursor:"pointer",
-          transition:"all .2s",
+          border:"1px solid rgba(239,68,68,0.3)", cursor:"pointer", transition:"all .2s",
         }}
-          onMouseEnter={e => { e.target.style.background="rgba(239,68,68,0.2)"; }}
-          onMouseLeave={e => { e.target.style.background="rgba(239,68,68,0.1)"; }}
+          onMouseEnter={e => { e.currentTarget.style.background="rgba(239,68,68,0.2)"; }}
+          onMouseLeave={e => { e.currentTarget.style.background="rgba(239,68,68,0.1)"; }}
         >
           🚪 {tl(lang,"logout")}
         </button>

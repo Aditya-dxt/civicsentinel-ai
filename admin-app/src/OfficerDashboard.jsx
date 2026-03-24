@@ -1032,6 +1032,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCity, setSelectedCity] = useState(null);
   const [drillCity, setDrillCity] = useState(null); // city ward drill-down
+  const [myReports, setMyReports]   = useState([]);
+  const [myReportsLoading, setMyReportsLoading] = useState(false);
 
   const {
     events, riskSummary, issueTrends, alerts, predictions,
@@ -1040,6 +1042,20 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   } = useDashboard();
 
   useEffect(() => { const id=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(id); }, []);
+
+  // Fetch real events when My Reports tab opens
+  useEffect(() => {
+    if (activeTab !== "myreports") return;
+    setMyReportsLoading(true);
+    fetch(`${API}/events`)
+      .then(r => r.json())
+      .then(d => {
+        const all = Array.isArray(d) ? d : (d.events || []);
+        setMyReports(all.slice(0, 20));
+      })
+      .catch(() => setMyReports([]))
+      .finally(() => setMyReportsLoading(false));
+  }, [activeTab]);
 
   // ── Derived ──
   const riskEntries = useMemo(() => Object.entries(riskSummary||{}).map(([city,score])=>({city,score})).sort((a,b)=>b.score-a.score), [riskSummary]);
@@ -1076,13 +1092,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
     { id:"graph",        icon:"🕸",  label:"Knowledge Graph", sub:"Entity connections" },
   ];
 
-  // My reports mock data (would come from user profile API)
-  const MY_REPORTS = [
-    { id:"CS1A2B3C", status:"resolved",   issue:"💧 Water Logging",     ward:"Bandra",       date:"2 days ago",  risk:42 },
-    { id:"CS4D5E6F", status:"submitted",  issue:"🚧 Road Damage",       ward:"Andheri",      date:"Today",       risk:67 },
-    { id:"CS7G8H9I", status:"in_progress",issue:"⚡ Power Outage",      ward:"Dharavi",      date:"Yesterday",   risk:58 },
-    { id:"CSJKL012", status:"resolved",   issue:"🗑️ Garbage",           ward:"Colaba",       date:"5 days ago",  risk:30 },
-  ];
+
 
   const userInitial = user && user.provider === "google" ? "G"
     : user && user.name ? user.name[0].toUpperCase()
@@ -1630,50 +1640,66 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 ))}
               </div>
 
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {MY_REPORTS.map((r,i)=>{
-                  const statusColor = r.status==="resolved"?"#00ff9d":r.status==="in_progress"?theme.amber:theme.accent;
-                  const statusLabel = r.status==="resolved"?"✓ Resolved":r.status==="in_progress"?"⏳ In Progress":"📤 Submitted";
-                  const progress    = r.status==="resolved"?100:r.status==="in_progress"?55:20;
-                  return (
-                    <div key={r.id} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                          <span style={{fontSize:16}}>{r.issue.split(" ")[0]}</span>
-                          <span style={{fontSize:14,fontWeight:700,color:theme.txt}}>{r.issue.split(" ").slice(1).join(" ")}</span>
-                          <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700}}>{statusLabel}</span>
-                        </div>
-                        <div style={{display:"flex",gap:16,marginBottom:8}}>
-                          {[["🏘️",r.ward],["🕐",r.date],["⚡",`Risk: ${r.risk}/100`]].map(([icon,val])=>(
-                            <div key={val} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
-                          ))}
-                        </div>
-                        {/* Progress bar */}
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
-                            <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
+              {myReportsLoading ? (
+                <div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+                  <div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/>
+                  <span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span>
+                </div>
+              ) : myReports.length === 0 ? (
+                <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+                  <div style={{fontSize:32,marginBottom:12}}>📭</div>
+                  No reports yet. Submit complaints from the Citizen App.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {myReports.map((r,i)=>{
+                    const status = r.status || "submitted";
+                    const statusColor = status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;
+                    const statusLabel = status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";
+                    const progress    = status==="resolved"?100:status==="in_progress"?55:20;
+                    const issue = r.issue || r.text || "Civic Issue";
+                    const ward  = r.ward  || r.city || r.location || "—";
+                    const date  = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : r.date || "Recent";
+                    const risk  = r.risk_score || r.risk || 0;
+                    const rid   = r.id || r._id || r.report_id || ("CS"+i);
+                    return (
+                      <div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                            <span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span>
+                            <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span>
                           </div>
-                          <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                          <div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>
+                            {[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(
+                              <div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
+                              <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
+                            </div>
+                            <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
+                          <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span>
+                          <div style={{width:42,height:42,position:"relative"}}>
+                            <svg width="42" height="42">
+                              <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
+                              <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
+                                strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
+                                strokeDashoffset="26.7" strokeLinecap="round"/>
+                            </svg>
+                            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
+                          </div>
                         </div>
                       </div>
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
-                        <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{r.id}</span>
-                        <div style={{width:42,height:42,position:"relative"}}>
-                          <svg width="42" height="42">
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
-                              strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
-                              strokeDashoffset="26.7" strokeLinecap="round"/>
-                          </svg>
-                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
