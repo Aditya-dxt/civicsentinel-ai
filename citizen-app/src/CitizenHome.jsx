@@ -13,7 +13,6 @@ const API = "https://civicsentinel-ai-1.onrender.com";
 const STATUS_COLOR = { submitted:"#3b82f6", in_progress:"#f97316", resolved:"#22c55e" };
 const ISSUE_ICONS  = { water:"💧", road:"🚧", electricity:"⚡", garbage:"🗑️", encroachment:"🏗️", crime:"🚨", health:"🏥", other:"📌" };
 
-
 function LangModal({ current, onChange, onClose, lang="en" }) {
   return (
     <div style={{position:"fixed",inset:0,zIndex:500,background:"rgba(2,8,4,.9)",backdropFilter:"blur(10px)",display:"flex",alignItems:"flex-end",justifyContent:"center",padding:16}}>
@@ -67,9 +66,8 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
         .then(r=>r.json())
         .then(d=>{
           const all = Array.isArray(d) ? d : (d.events || []);
-          // Filter by user if not guest
-          const userReports = user.guest ? all : all.filter(e => e.user_id === user.uid || !e.user_id);
-          setReports(userReports.slice(0,20));
+          // Show all reports — backend doesn't store user_id yet
+          setReports(all.slice(0,20));
         })
         .catch(()=>setReports([]))
         .finally(()=>setReportsLoading(false));
