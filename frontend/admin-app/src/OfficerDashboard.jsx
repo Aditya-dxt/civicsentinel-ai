@@ -218,12 +218,50 @@ function Particles({ isDark }) {
 // CITY GEO DATA
 // ══════════════════════════════════════════════════════════════════════════════
 const CITY_GEO = {
-  Mumbai:    { lat:19.0760, lng:72.8777, zoom:12 },
-  Delhi:     { lat:28.6139, lng:77.2090, zoom:11 },
-  Bangalore: { lat:12.9716, lng:77.5946, zoom:12 },
-  Chennai:   { lat:13.0827, lng:80.2707, zoom:12 },
-  Kolkata:   { lat:22.5726, lng:88.3639, zoom:12 },
-  Hyderabad: { lat:17.3850, lng:78.4867, zoom:12 },
+  Mumbai:           { lat:19.0760, lng:72.8777, zoom:12 },
+  Delhi:            { lat:28.6139, lng:77.2090, zoom:11 },
+  Bangalore:        { lat:12.9716, lng:77.5946, zoom:12 },
+  Chennai:          { lat:13.0827, lng:80.2707, zoom:12 },
+  Kolkata:          { lat:22.5726, lng:88.3639, zoom:12 },
+  Hyderabad:        { lat:17.3850, lng:78.4867, zoom:12 },
+  Pune:             { lat:18.5204, lng:73.8567, zoom:12 },
+  Ahmedabad:        { lat:23.0225, lng:72.5714, zoom:12 },
+  Jaipur:           { lat:26.9124, lng:75.7873, zoom:12 },
+  Surat:            { lat:21.1702, lng:72.8311, zoom:12 },
+  Kanpur:           { lat:26.4499, lng:80.3319, zoom:12 },
+  Nagpur:           { lat:21.1458, lng:79.0882, zoom:12 },
+  Lucknow:          { lat:26.8467, lng:80.9462, zoom:12 },
+  Bhopal:           { lat:23.2599, lng:77.4126, zoom:12 },
+  Indore:           { lat:22.7196, lng:75.8577, zoom:12 },
+  Patna:            { lat:25.5941, lng:85.1376, zoom:12 },
+  Vadodara:         { lat:22.3072, lng:73.1812, zoom:12 },
+  Coimbatore:       { lat:11.0168, lng:76.9558, zoom:12 },
+  Agra:             { lat:27.1767, lng:78.0081, zoom:12 },
+  Nashik:           { lat:19.9975, lng:73.7898, zoom:12 },
+  Rajkot:           { lat:22.3039, lng:70.8022, zoom:12 },
+  Meerut:           { lat:28.9845, lng:77.7064, zoom:12 },
+  Varanasi:         { lat:25.3176, lng:82.9739, zoom:12 },
+  Amritsar:         { lat:31.6340, lng:74.8723, zoom:12 },
+  Visakhapatnam:    { lat:17.6868, lng:83.2185, zoom:12 },
+  Thane:            { lat:19.2183, lng:72.9781, zoom:12 },
+  "Navi Mumbai":    { lat:19.0330, lng:73.0297, zoom:12 },
+  Faridabad:        { lat:28.4089, lng:77.3178, zoom:12 },
+  Ghaziabad:        { lat:28.6692, lng:77.4538, zoom:12 },
+  Noida:            { lat:28.5355, lng:77.3910, zoom:12 },
+  Kochi:            { lat:9.9312,  lng:76.2673, zoom:12 },
+  Chandigarh:       { lat:30.7333, lng:76.7794, zoom:12 },
+  Guwahati:         { lat:26.1445, lng:91.7362, zoom:12 },
+  Bhubaneswar:      { lat:20.2961, lng:85.8245, zoom:12 },
+  Ranchi:           { lat:23.3441, lng:85.3096, zoom:12 },
+  Raipur:           { lat:21.2514, lng:81.6296, zoom:12 },
+  Jodhpur:          { lat:26.2389, lng:73.0243, zoom:12 },
+  Madurai:          { lat:9.9252,  lng:78.1198, zoom:12 },
+  Mysuru:           { lat:12.2958, lng:76.6394, zoom:12 },
+  Mangaluru:        { lat:12.9141, lng:74.8560, zoom:12 },
+  Thiruvananthapuram:{ lat:8.5241, lng:76.9366, zoom:12 },
+  Kozhikode:        { lat:11.2588, lng:75.7804, zoom:12 },
+  Vijayawada:       { lat:16.5062, lng:80.6480, zoom:12 },
+  Warangal:         { lat:17.9689, lng:79.5941, zoom:12 },
 };
 
 // Ward GeoJSON per city — real approximate boundaries as polygons
@@ -335,7 +373,13 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = [];
     Object.entries(riskSummary || {}).forEach(([city, score]) => {
-      const geo = CITY_GEO[city]; if (!geo) return;
+      let geo = CITY_GEO[city];
+      if (!geo) {
+        // Try case-insensitive match
+        const key = Object.keys(CITY_GEO).find(k => k.toLowerCase() === city.toLowerCase());
+        geo = key ? CITY_GEO[key] : null;
+      }
+      if (!geo) return; // truly unknown city
       const col = riskCol(score, isDark);
       const hexCol = col;
       const isDrilling = drillCity === city;
@@ -485,188 +529,154 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
 // KNOWLEDGE GRAPH VISUALIZER
 // ══════════════════════════════════════════════════════════════════════════════
 function KnowledgeGraph({ data, isDark }) {
-const t = useT();
-const canvasRef = useRef(null);
+  const t = useT();
+  const canvasRef = useRef(null);
 
-const { nodes, edges } = useMemo(() => {
-if (!data) return { nodes: [], edges: [] };
+  // Build nodes/edges — handles {nodes:N, edges:N, relations:[{city,issue}]} shape from real API
+  const { nodes, edges } = useMemo(() => {
+    if (!data) return { nodes: [], edges: [] };
 
-```
-const toArr = (v) => {
-  if (!v) return [];
-  if (Array.isArray(v)) return v;
-  if (typeof v === "object") return Object.values(v);
-  return [];
-};
+    const toArr = (v) => {
+      if (!v) return [];
+      if (Array.isArray(v)) return v;
+      if (typeof v === "object") return Object.values(v);
+      return [];
+    };
 
-// 🔥 FIXED SECTION — with validation
-if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
-  const relations = data.relations.slice(0, 20);
-  const nodeMap = {};
-  const ns = [];
-  const es = [];
-
-  const KNOWN_CITIES = [
-    "Mumbai","Delhi","Lucknow","Kanpur","Bangalore","Chennai"
-  ];
-
-  const isCity = (name) => KNOWN_CITIES.includes(name);
-
-  relations.forEach((rel) => {
-    let rawCity  = rel.city  || rel.source || rel.from || null;
-    let rawIssue = rel.issue || rel.target || rel.to   || null;
-
-    let cityLabel, issueLabel;
-
-    // ✅ FIX: auto-correct swapped data
-    if (isCity(rawCity)) {
-      cityLabel = rawCity;
-      issueLabel = rawIssue;
-    } else if (isCity(rawIssue)) {
-      cityLabel = rawIssue;
-      issueLabel = rawCity;
-    } else {
-      cityLabel = rawCity;
-      issueLabel = rawIssue;
-    }
-
-    if (cityLabel && !(cityLabel in nodeMap)) {
-      nodeMap[cityLabel] = ns.length;
-      ns.push({
-        id: ns.length,
-        label: String(cityLabel).slice(0, 14),
-        type: "city",
-        value: rel.risk_score || 62
+    // PRIMARY: { nodes:N, edges:N, relations:[{city,issue,...}] }
+    // This is the actual API shape — build graph from relations
+    if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
+      const relations = data.relations.slice(0, 20);
+      const nodeMap = {};
+      const ns = [];
+      const es = [];
+      relations.forEach((rel) => {
+        const cityLabel  = rel.city  || rel.source || rel.from || null;
+        const issueLabel = rel.issue || rel.target || rel.to   || null;
+        if (cityLabel && !(cityLabel in nodeMap)) {
+          nodeMap[cityLabel] = ns.length;
+          ns.push({ id: ns.length, label: String(cityLabel).slice(0,14), type:"city",  value: rel.risk_score || 62 });
+        }
+        if (issueLabel && !(issueLabel in nodeMap)) {
+          nodeMap[issueLabel] = ns.length;
+          ns.push({ id: ns.length, label: String(issueLabel).slice(0,14), type:"issue", value: rel.severity  || 48 });
+        }
+        if (cityLabel && issueLabel && (cityLabel in nodeMap) && (issueLabel in nodeMap)) {
+          es.push({ from: nodeMap[cityLabel], to: nodeMap[issueLabel] });
+        }
       });
+      if (ns.length > 0) return { nodes: ns, edges: es };
     }
 
-    if (issueLabel && !(issueLabel in nodeMap)) {
-      nodeMap[issueLabel] = ns.length;
-      ns.push({
-        id: ns.length,
-        label: String(issueLabel).slice(0, 14),
-        type: "issue",
-        value: rel.severity || 48
+    // FALLBACK A: top-level array
+    if (Array.isArray(data)) {
+      const ns = data.slice(0, 20).map((item, i) => ({
+        id: i, label: item.entity || item.city || item.issue || item.name || ("Node " + i),
+        type: item.type || "entity", value: item.risk_score || item.score || 50,
+      }));
+      const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 1) % ns.length }));
+      return { nodes: ns, edges: es };
+    }
+
+    // FALLBACK B: { nodes:[...], edges:[...] }
+    if (data.nodes && Array.isArray(data.nodes) && data.nodes.length > 0) {
+      const ns = toArr(data.nodes).slice(0, 20).map((n, i) => ({
+        id: i, label: n.label || n.name || n.entity || ("Node " + i),
+        type: n.type || "entity", value: n.value || n.risk || 50,
+      }));
+      const es = toArr(data.edges).slice(0, 30).map((e, i) => ({
+        from: typeof e.from === "number" ? e.from : (typeof e.source === "number" ? e.source : i % ns.length),
+        to:   typeof e.to   === "number" ? e.to   : (typeof e.target === "number" ? e.target : (i + 1) % ns.length),
+      }));
+      return { nodes: ns, edges: es };
+    }
+
+    // FALLBACK C: plain {key:value} object
+    const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k)).slice(0, 14);
+    if (keys.length > 0) {
+      const ns = keys.map((k, i) => ({ id: i, label: k, type:"city", value: typeof data[k] === "number" ? data[k] : 50 }));
+      const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 2) % ns.length }));
+      return { nodes: ns, edges: es };
+    }
+
+    return { nodes: [], edges: [] };
+  }, [data]);
+
+  useEffect(() => {
+    if (!nodes.length) return;
+    const canvas = canvasRef.current; if(!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const W = canvas.width, H = canvas.height;
+
+    // Simple force-like layout: place nodes on ellipse
+    const placed = nodes.map((n, i) => {
+      const angle = (i / nodes.length) * Math.PI * 2;
+      return { ...n, x: W/2 + Math.cos(angle)*(W*0.38), y: H/2 + Math.sin(angle)*(H*0.38) };
+    });
+
+    let frame = 0; let id;
+    const draw = () => {
+      ctx.clearRect(0,0,W,H);
+      // Draw edges
+      edges.forEach(e => {
+        const from = placed[e.from]; const to = placed[e.to];
+        if(!from||!to) return;
+        ctx.beginPath(); ctx.moveTo(from.x,from.y); ctx.lineTo(to.x,to.y);
+        ctx.strokeStyle = isDark ? `rgba(0,200,255,${0.08+Math.abs(Math.sin(frame*.02+e.from))*.08})` : "rgba(0,60,140,0.08)";
+        ctx.lineWidth = .8; ctx.stroke();
       });
-    }
-
-    if (cityLabel && issueLabel &&
-        (cityLabel in nodeMap) &&
-        (issueLabel in nodeMap)) {
-      es.push({
-        from: nodeMap[cityLabel],
-        to: nodeMap[issueLabel]
+      // Draw nodes — city nodes = cyan, issue nodes = amber/red
+      placed.forEach((n,i) => {
+        const isCity  = n.type === "city";
+        const isIssue = n.type === "issue";
+        const col = isCity  ? (isDark ? "#00ccff" : "#0050cc")
+                  : isIssue ? (isDark ? "#ffb800" : "#8a5000")
+                  : riskCol(n.value||50, isDark);
+        const pulse = 1 + Math.sin(frame*.03+i)*.1;
+        const r = (isCity ? 9 : 7) * pulse;
+        // Glow ring
+        ctx.beginPath(); ctx.arc(n.x,n.y,r+5,0,Math.PI*2);
+        ctx.fillStyle = col + "18"; ctx.fill();
+        // Core circle
+        ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2);
+        ctx.fillStyle = col + "44"; ctx.fill();
+        ctx.strokeStyle = col; ctx.lineWidth = isCity ? 1.8 : 1.3; ctx.stroke();
+        // Type icon text inside node
+        ctx.fillStyle = isDark ? "rgba(255,255,255,0.9)" : col;
+        ctx.font = "bold " + (r*0.9) + "px Inter,sans-serif"; ctx.textAlign="center";
+        ctx.fillText(isCity ? "🏙" : isIssue ? "⚠" : "●", n.x, n.y + r*0.35);
+        // Label below node
+        ctx.fillStyle = isDark ? "rgba(200,230,255,0.85)" : "rgba(12,24,40,0.7)";
+        ctx.font = "600 9px Inter,sans-serif"; ctx.textAlign="center";
+        ctx.fillText(String(n.label).slice(0,13), n.x, n.y + r + 12);
       });
-    }
-  });
+      frame++; id = requestAnimationFrame(draw);
+    };
+    draw(); return () => cancelAnimationFrame(id);
+  }, [nodes, edges, isDark]);
 
-  if (ns.length > 0) return { nodes: ns, edges: es };
+  if (!data) return <div style={{height:300,display:"flex",alignItems:"center",justifyContent:"center",color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Loading knowledge graph...</div>;
+
+  if (nodes.length === 0) return (
+    <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+      <div style={{fontSize:32}}>🕸</div>
+      <div>No graph data yet — submit complaints to build the knowledge graph</div>
+      <div style={{fontSize:11,opacity:.5}}>Relations data: {JSON.stringify(data).slice(0,120)}…</div>
+    </div>
+  );
+
+  return (
+    <div style={{position:"relative"}}>
+      <canvas ref={canvasRef} width={900} height={320} style={{width:"100%",height:320,borderRadius:6}}/>
+      {/* Legend */}
+      <div style={{position:"absolute",top:8,right:8,display:"flex",gap:10,background:isDark?"rgba(4,10,22,.85)":"rgba(255,255,255,.85)",padding:"5px 10px",borderRadius:7,border:`1px solid ${t.border}`,backdropFilter:"blur(8px)"}}>
+        {[["🏙 City","#00ccff"],["⚠ Issue","#ffb800"]].map(([l,c])=>(
+          <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:c,fontFamily:"'Inter',sans-serif",fontWeight:600}}>{l}</div>
+        ))}
+      </div>
+    </div>
+  );
 }
-
-// FALLBACKS (unchanged)
-if (Array.isArray(data)) {
-  const ns = data.slice(0, 20).map((item, i) => ({
-    id: i,
-    label: item.entity || item.city || item.issue || item.name || ("Node " + i),
-    type: item.type || "entity",
-    value: item.risk_score || item.score || 50,
-  }));
-  const es = ns.slice(0, -1).map((_, i) => ({ from: i, to: (i + 1) % ns.length }));
-  return { nodes: ns, edges: es };
-}
-
-if (data.nodes && Array.isArray(data.nodes)) {
-  const ns = toArr(data.nodes).slice(0, 20).map((n, i) => ({
-    id: i,
-    label: n.label || n.name || ("Node " + i),
-    type: n.type || "entity",
-    value: n.value || 50,
-  }));
-  const es = toArr(data.edges).slice(0, 30).map((e, i) => ({
-    from: typeof e.from === "number" ? e.from : i % ns.length,
-    to: typeof e.to === "number" ? e.to : (i + 1) % ns.length,
-  }));
-  return { nodes: ns, edges: es };
-}
-
-return { nodes: [], edges: [] };
-```
-
-}, [data]);
-
-useEffect(() => {
-if (!nodes.length) return;
-const canvas = canvasRef.current;
-const ctx = canvas.getContext("2d");
-
-```
-const W = canvas.width;
-const H = canvas.height;
-
-const placed = nodes.map((n, i) => {
-  const angle = (i / nodes.length) * Math.PI * 2;
-  return {
-    ...n,
-    x: W/2 + Math.cos(angle)*(W*0.38),
-    y: H/2 + Math.sin(angle)*(H*0.38)
-  };
-});
-
-let frame = 0;
-let id;
-
-const draw = () => {
-  ctx.clearRect(0,0,W,H);
-
-  edges.forEach(e => {
-    const from = placed[e.from];
-    const to = placed[e.to];
-    if(!from||!to) return;
-
-    ctx.beginPath();
-    ctx.moveTo(from.x,from.y);
-    ctx.lineTo(to.x,to.y);
-    ctx.strokeStyle = isDark ? "rgba(0,200,255,0.15)" : "rgba(0,60,140,0.1)";
-    ctx.stroke();
-  });
-
-  placed.forEach((n,i) => {
-    const isCity  = n.type === "city";
-    const col = isCity ? "#00ccff" : "#ffb800";
-
-    const r = isCity ? 9 : 7;
-
-    ctx.beginPath();
-    ctx.arc(n.x,n.y,r,0,Math.PI*2);
-    ctx.fillStyle = col;
-    ctx.fill();
-
-    ctx.fillStyle = "#fff";
-    ctx.font = "10px Inter";
-    ctx.textAlign="center";
-    ctx.fillText(n.label, n.x, n.y + r + 10);
-  });
-
-  frame++;
-  id = requestAnimationFrame(draw);
-};
-
-draw();
-return () => cancelAnimationFrame(id);
-```
-
-}, [nodes, edges, isDark]);
-
-return (
-<canvas
-ref={canvasRef}
-width={900}
-height={320}
-style={{ width:"100%", height:320 }}
-/>
-);
-}
-
 
 // ══════════════════════════════════════════════════════════════════════════════
 // AI INSIGHT PANEL — uses /ai-insight endpoint
@@ -756,7 +766,7 @@ function AIInsightPanel({ insight, loading, error }) {
             onFocus={e=>e.target.style.borderColor=t.inputFocus}
             onBlur={e=>e.target.style.borderColor=t.inputBorder}/>
         </div>
-        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading?0.5:1}}>ASK</button>
+        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading?.5:1}}>ASK</button>
       </div>
     </div>
   );
@@ -791,7 +801,7 @@ function Panel({ title, subtitle, children, acc, tag, style={} }) {
 
 function CyberTip({ active, payload, label }) {
   const t = useT();
-  if (!active || !payload || !payload.length) return null;
+  if(!active||!payload?.length)return null;
   return (
     <div style={{background:t.panel,border:`1px solid ${t.border}`,borderRadius:8,padding:"10px 14px",fontFamily:"'DM Mono',monospace",backdropFilter:"blur(20px)"}}>
       <div style={{color:t.accent,fontSize:14,marginBottom:6}}>{label}</div>
@@ -803,8 +813,8 @@ function CyberTip({ active, payload, label }) {
 function Toggle({ isDark, onToggle }) {
   return (
     <button onClick={onToggle} style={{position:"relative",width:64,height:30,borderRadius:15,cursor:"pointer",padding:0,overflow:"hidden",background:isDark?"linear-gradient(135deg,#020609,#001828)":"linear-gradient(135deg,#dce8ff,#eff6ff)",border:`1.5px solid ${isDark?"rgba(0,204,255,0.42)":"rgba(0,60,140,0.26)"}`,boxShadow:isDark?"0 0 12px rgba(0,204,255,0.16)":"0 2px 8px rgba(0,60,140,0.09)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}>
-      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?0.88:0.28,transition:"opacity .3s"}}>🌙</span>
-      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?0.28:0.92,transition:"opacity .3s"}}>☀️</span>
+      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.88:.28,transition:"opacity .3s"}}>🌙</span>
+      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.28:.92,transition:"opacity .3s"}}>☀️</span>
       <div style={{position:"absolute",top:3,left:isDark?3:37,width:22,height:22,borderRadius:"50%",background:isDark?"linear-gradient(135deg,#00ccff,#0055bb)":"linear-gradient(135deg,#fbbf24,#f59e0b)",boxShadow:isDark?"0 0 10px rgba(0,204,255,0.65)":"0 2px 6px rgba(251,191,36,0.55)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}/>
     </button>
   );
@@ -995,7 +1005,7 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {SUGGESTIONS.map((s,i)=>(
               <button key={i} onClick={()=>!loading&&send(s)}
-                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?0.55:1}}
+                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?.55:1}}
                 onMouseEnter={e=>!loading&&(e.currentTarget.style.background=`${theme.amber}14`)}
                 onMouseLeave={e=>(e.currentTarget.style.background=`${theme.amber}08`)}>
                 💬 {s}
@@ -1022,6 +1032,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCity, setSelectedCity] = useState(null);
   const [drillCity, setDrillCity] = useState(null); // city ward drill-down
+  const [myReports, setMyReports]   = useState([]);
+  const [myReportsLoading, setMyReportsLoading] = useState(false);
 
   const {
     events, riskSummary, issueTrends, alerts, predictions,
@@ -1030,6 +1042,20 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   } = useDashboard();
 
   useEffect(() => { const id=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(id); }, []);
+
+  // Fetch real events when My Reports tab opens
+  useEffect(() => {
+    if (activeTab !== "myreports") return;
+    setMyReportsLoading(true);
+    fetch(`${API}/events`)
+      .then(r => r.json())
+      .then(d => {
+        const all = Array.isArray(d) ? d : (d.events || []);
+        setMyReports(all.slice(0, 20));
+      })
+      .catch(() => setMyReports([]))
+      .finally(() => setMyReportsLoading(false));
+  }, [activeTab]);
 
   // ── Derived ──
   const riskEntries = useMemo(() => Object.entries(riskSummary||{}).map(([city,score])=>({city,score})).sort((a,b)=>b.score-a.score), [riskSummary]);
@@ -1066,13 +1092,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
     { id:"graph",        icon:"🕸",  label:"Knowledge Graph", sub:"Entity connections" },
   ];
 
-  // My reports mock data (would come from user profile API)
-  const MY_REPORTS = [
-    { id:"CS1A2B3C", status:"resolved",   issue:"💧 Water Logging",     ward:"Bandra",       date:"2 days ago",  risk:42 },
-    { id:"CS4D5E6F", status:"submitted",  issue:"🚧 Road Damage",       ward:"Andheri",      date:"Today",       risk:67 },
-    { id:"CS7G8H9I", status:"in_progress",issue:"⚡ Power Outage",      ward:"Dharavi",      date:"Yesterday",   risk:58 },
-    { id:"CSJKL012", status:"resolved",   issue:"🗑️ Garbage",           ward:"Colaba",       date:"5 days ago",  risk:30 },
-  ];
+
 
   const userInitial = user && user.provider === "google" ? "G"
     : user && user.name ? user.name[0].toUpperCase()
@@ -1302,8 +1322,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                     }}
                   >
                     <option value="">🗺 India Overview</option>
-                    {Object.keys(WARD_GEOJSON).map(c => (
-                      <option key={c} value={c}>📍 {c}</option>
+                    {Object.keys(WARD_GEOJSON).filter(c => riskSummary && riskSummary[c] !== undefined).map(c => (
+                      <option key={c} value={c}>📍 {c} — Risk: {riskSummary[c]}</option>
                     ))}
                   </select>
                 }
@@ -1365,7 +1385,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                   <IndiaMap
                     riskSummary={riskSummary}
                     isDark={isDark}
-                    onCitySelect={city => setDrillCity(WARD_GEOJSON[city] ? city : null)}
+                    onCitySelect={city => setDrillCity((WARD_GEOJSON[city] && riskSummary[city] !== undefined) ? city : null)}
                     drillCity={drillCity}
                   />
                 )}
@@ -1620,50 +1640,66 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 ))}
               </div>
 
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {MY_REPORTS.map((r,i)=>{
-                  const statusColor = r.status==="resolved"?"#00ff9d":r.status==="in_progress"?theme.amber:theme.accent;
-                  const statusLabel = r.status==="resolved"?"✓ Resolved":r.status==="in_progress"?"⏳ In Progress":"📤 Submitted";
-                  const progress    = r.status==="resolved"?100:r.status==="in_progress"?55:20;
-                  return (
-                    <div key={r.id} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                          <span style={{fontSize:16}}>{r.issue.split(" ")[0]}</span>
-                          <span style={{fontSize:14,fontWeight:700,color:theme.txt}}>{r.issue.split(" ").slice(1).join(" ")}</span>
-                          <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700}}>{statusLabel}</span>
-                        </div>
-                        <div style={{display:"flex",gap:16,marginBottom:8}}>
-                          {[["🏘️",r.ward],["🕐",r.date],["⚡",`Risk: ${r.risk}/100`]].map(([icon,val])=>(
-                            <div key={val} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
-                          ))}
-                        </div>
-                        {/* Progress bar */}
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
-                            <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
+              {myReportsLoading ? (
+                <div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+                  <div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/>
+                  <span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span>
+                </div>
+              ) : myReports.length === 0 ? (
+                <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+                  <div style={{fontSize:32,marginBottom:12}}>📭</div>
+                  No reports yet. Submit complaints from the Citizen App.
+                </div>
+              ) : (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  {myReports.map((r,i)=>{
+                    const status = r.status || "submitted";
+                    const statusColor = status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;
+                    const statusLabel = status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";
+                    const progress    = status==="resolved"?100:status==="in_progress"?55:20;
+                    const issue = r.issue || r.text || "Civic Issue";
+                    const ward  = r.ward  || r.city || r.location || "—";
+                    const date  = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : r.date || "Recent";
+                    const risk  = r.risk_score || r.risk || 0;
+                    const rid   = r.id || r._id || r.report_id || ("CS"+i);
+                    return (
+                      <div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
+                        <div>
+                          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                            <span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span>
+                            <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span>
                           </div>
-                          <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                          <div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>
+                            {[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(
+                              <div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
+                            ))}
+                          </div>
+                          <div style={{display:"flex",alignItems:"center",gap:8}}>
+                            <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
+                              <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
+                            </div>
+                            <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                          </div>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
+                          <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span>
+                          <div style={{width:42,height:42,position:"relative"}}>
+                            <svg width="42" height="42">
+                              <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
+                              <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
+                                strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
+                                strokeDashoffset="26.7" strokeLinecap="round"/>
+                            </svg>
+                            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
+                          </div>
                         </div>
                       </div>
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
-                        <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{r.id}</span>
-                        <div style={{width:42,height:42,position:"relative"}}>
-                          <svg width="42" height="42">
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
-                              strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
-                              strokeDashoffset="26.7" strokeLinecap="round"/>
-                          </svg>
-                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
