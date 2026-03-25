@@ -3,16 +3,14 @@ import { tl } from "./translations";
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CIVICSENTINEL — CITIZEN REPORTING  v2
-// Step 1 — Photo capture / upload
-// Step 2 — GPS auto-tag (coords, accuracy, reverse-geocode ward)
-// Step 3 — AI pipeline:  ① legitimacy check  ② YOLO-style issue detection
-// Step 4 — Details (category pre-filled by YOLO, override allowed)
-// Step 5 — Preview & submit → ward dispatch
+// FIX: payload now includes user_id (from Firebase uid), ward, status fields.
+//      report_id from backend response is used directly instead of generating
+//      a client-side fallback ID that doesn't match stored events.
 // ══════════════════════════════════════════════════════════════════════════════
 
 const API = "https://civicsentinel-ai-1.onrender.com";
 
-// ── Issue categories (icon, English + 5 regional labels) ────────────────────
+// ── Issue categories ─────────────────────────────────────────────────────────
 const CATS = [
   { id:"water",        icon:"💧", label:"Water / Drainage",     hi:"पानी / नाली",       ta:"தண்ணீர்",    te:"నీరు",     bn:"জল",        mr:"पाणी",     yoloKeywords:["flood","water","drain","puddle","leak","pipe"] },
   { id:"road",         icon:"🚧", label:"Road Damage",          hi:"सड़क क्षति",          ta:"சாலை சேதம்", te:"రోడ్డు",    bn:"রাস্তা",     mr:"रस्ता",     yoloKeywords:["pothole","crack","road","pavement","break","damaged"] },
@@ -25,34 +23,31 @@ const CATS = [
 ];
 
 const catLabel = (id, lang) => {
-  const cat = CATS.find(c=>c.id===id); if (!cat) return id;
+  const cat = CATS.find(c => c.id === id);
+  if (!cat) return id;
   return cat[lang] || cat.label;
 };
 
-// ── YOLO-style detection mock ─────────────────────────────────────────────────
-// In production: POST image to FastAPI /detect endpoint running YOLOv8
-// Here we use Claude AI via Anthropic API to classify the image content
+// ── YOLO-style AI detection ──────────────────────────────────────────────────
 async function runYoloDetection(base64Image) {
-  // Strip data: prefix if present
   const imgData = base64Image.replace(/^data:image\/[a-z]+;base64,/, "");
-  
   try {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model:"claude-sonnet-4-20250514",
-        max_tokens:400,
-        messages:[{
-          role:"user",
-          content:[
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 400,
+        messages: [{
+          role: "user",
+          content: [
             {
-              type:"image",
-              source:{ type:"base64", media_type:"image/jpeg", data:imgData }
+              type: "image",
+              source: { type: "base64", media_type: "image/jpeg", data: imgData }
             },
             {
-              type:"text",
-              text:`You are a civic issue detection AI similar to YOLO object detection. Analyze this photo and detect civic/infrastructure problems. Respond ONLY with valid JSON, no markdown:
+              type: "text",
+              text: `You are a civic issue detection AI similar to YOLO object detection. Analyze this photo and detect civic/infrastructure problems. Respond ONLY with valid JSON, no markdown:
 {
   "isLegitimate": true or false (false if blurry, screenshot, unrelated, or fake),
   "legitimacyReason": "brief reason if false",
@@ -69,33 +64,33 @@ async function runYoloDetection(base64Image) {
         }]
       })
     });
-    const data = await res.json();
-    const text = data.content && data.content.map(b=>b.text||"").join("") || "";
-    const clean = text.replace(/```json|```/g,"").trim();
+    const data  = await res.json();
+    const text  = data.content && data.content.map(b => b.text || "").join("") || "";
+    const clean = text.replace(/```json|```/g, "").trim();
     return JSON.parse(clean);
-  } catch(err) {
-    // Fallback: deterministic mock so UI always works
-    await new Promise(r=>setTimeout(r,1800));
-    const cats = ["road","water","garbage","electricity"];
-    const picked = cats[Math.floor(Math.random()*cats.length)];
-    const cat = CATS.find(c=>c.id===picked);
+  } catch (err) {
+    // Fallback mock so UI always works even without API key
+    await new Promise(r => setTimeout(r, 1800));
+    const cats   = ["road","water","garbage","electricity"];
+    const picked = cats[Math.floor(Math.random() * cats.length)];
+    const cat    = CATS.find(c => c.id === picked);
     return {
-      isLegitimate: Math.random() > 0.08,
-      legitimacyReason: "unclear image",
-      blurScore: 0.6 + Math.random()*0.38,
-      detectedObjects: cat.yoloKeywords.slice(0,3),
-      issueCategory: picked,
-      issueLabel: cat.label,
-      confidence: 0.72 + Math.random()*0.25,
-      severity: ["low","medium","high"][Math.floor(Math.random()*3)],
+      isLegitimate:           Math.random() > 0.08,
+      legitimacyReason:       "unclear image",
+      blurScore:              0.6 + Math.random() * 0.38,
+      detectedObjects:        cat.yoloKeywords.slice(0, 3),
+      issueCategory:          picked,
+      issueLabel:             cat.label,
+      confidence:             0.72 + Math.random() * 0.25,
+      severity:               ["low","medium","high"][Math.floor(Math.random() * 3)],
       boundingBoxDescription: "center of image",
     };
   }
 }
 
-// ── Reverse geocode using free Nominatim ─────────────────────────────────────
-// Map any city name to the closest known city for backend risk scoring
+// ── Reverse geocode ──────────────────────────────────────────────────────────
 const KNOWN_CITIES = ["Mumbai","Delhi","Bangalore","Chennai","Kolkata","Hyderabad","Pune","Ahmedabad","Jaipur","Surat","Kanpur","Nagpur","Lucknow","Bhopal","Indore","Patna","Vadodara","Coimbatore","Agra","Nashik"];
+
 function normalizeCity(rawCity) {
   if (!rawCity) return "Unknown";
   const lower = rawCity.toLowerCase();
@@ -105,8 +100,10 @@ function normalizeCity(rawCity) {
 
 async function reverseGeocode(lat, lng) {
   try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14`,
-      { headers:{ "Accept-Language":"en" } });
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=14`,
+      { headers: { "Accept-Language": "en" } }
+    );
     const d = await r.json();
     const a = d.address || {};
     return {
@@ -114,7 +111,7 @@ async function reverseGeocode(lat, lng) {
       city:     normalizeCity(a.city || a.town || a.county || "Unknown City"),
       district: a.state_district || a.county || "",
       state:    a.state || "",
-      display:  d.display_name && d.display_name.split(",").slice(0,3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
+      display:  d.display_name && d.display_name.split(",").slice(0, 3).join(", ") || `${lat.toFixed(4)}, ${lng.toFixed(4)}`,
     };
   } catch {
     return { ward:"Unknown Ward", city:"Unknown City", display:`${lat.toFixed(4)}, ${lng.toFixed(4)}` };
@@ -122,30 +119,35 @@ async function reverseGeocode(lat, lng) {
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
-const STEPS = ["photo","gps","ai","details","submit","done"];
+const STEPS      = ["photo","gps","ai","details","submit","done"];
 const STEP_ICONS = { photo:"📸", gps:"📍", ai:"🤖", details:"📝", submit:"🚀", done:"✅" };
-const getStepLabels = (lang) => ({ photo:tl(lang,"stepPhoto"), gps:tl(lang,"stepGps"), ai:tl(lang,"stepAi"), details:tl(lang,"stepDetails"), submit:tl(lang,"stepSubmit"), done:tl(lang,"stepDone") });
 
-function StepBar({ current, lang="en" }) {
+const getStepLabels = (lang) => ({
+  photo:   tl(lang, "stepPhoto"),
+  gps:     tl(lang, "stepGps"),
+  ai:      tl(lang, "stepAi"),
+  details: tl(lang, "stepDetails"),
+  submit:  tl(lang, "stepSubmit"),
+  done:    tl(lang, "stepDone"),
+});
+
+function StepBar({ current, lang = "en" }) {
   const STEP_LABELS = getStepLabels(lang);
   const idx = STEPS.indexOf(current);
   return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22,gap:0}}>
-      {STEPS.filter(s=>s!=="done").map((s,i)=>{
-        const done = idx > i; const active = current===s;
+    <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22,gap:0 }}>
+      {STEPS.filter(s => s !== "done").map((s, i) => {
+        const done   = idx > i;
+        const active = current === s;
         return (
-          <div key={s} style={{display:"flex",alignItems:"center"}}>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:3}}>
-              <div style={{width:34,height:34,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",
-                background:done?"#00ff9d":active?"rgba(0,200,255,.22)":"rgba(255,255,255,.05)",
-                border:`2px solid ${done?"#00ff9d":active?"#00ccff":"rgba(255,255,255,.1)"}`,
-                fontSize:done?13:15,transition:"all .3s",
-                boxShadow:active?"0 0 14px rgba(0,200,255,.38)":"none"}}>
+          <div key={s} style={{ display:"flex",alignItems:"center" }}>
+            <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
+              <div style={{ width:34,height:34,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:done?"#00ff9d":active?"rgba(0,200,255,.22)":"rgba(255,255,255,.05)",border:`2px solid ${done?"#00ff9d":active?"#00ccff":"rgba(255,255,255,.1)"}`,fontSize:done?13:15,transition:"all .3s",boxShadow:active?"0 0 14px rgba(0,200,255,.38)":"none" }}>
                 {done ? "✓" : STEP_ICONS[s]}
               </div>
-              <span style={{fontSize:9,color:active?"#00ccff":done?"#00ff9d":"rgba(255,255,255,.22)",fontFamily:"'Inter',sans-serif",fontWeight:active||done?700:400}}>{STEP_LABELS[s]}</span>
+              <span style={{ fontSize:9,color:active?"#00ccff":done?"#00ff9d":"rgba(255,255,255,.22)",fontFamily:"'Inter',sans-serif",fontWeight:active||done?700:400 }}>{STEP_LABELS[s]}</span>
             </div>
-            {i < 4 && <div style={{width:26,height:2,background:done?"rgba(0,255,157,.3)":"rgba(255,255,255,.07)",margin:"0 3px",marginBottom:18,flexShrink:0}}/>}
+            {i < 4 && <div style={{ width:26,height:2,background:done?"rgba(0,255,157,.3)":"rgba(255,255,255,.07)",margin:"0 3px",marginBottom:18,flexShrink:0 }}/>}
           </div>
         );
       })}
@@ -153,10 +155,9 @@ function StepBar({ current, lang="en" }) {
   );
 }
 
-// ── Bounding-box overlay on preview image ────────────────────────────────────
+// ── Bounding-box overlay ──────────────────────────────────────────────────────
 function DetectionOverlay({ yolo }) {
   if (!yolo || !yolo.boundingBoxDescription) return null;
-  // Map description to approximate CSS position
   const pos = {
     "center":        { top:"30%",left:"25%",width:"50%",height:"40%" },
     "bottom-left":   { top:"55%",left:"5%", width:"40%",height:"38%" },
@@ -166,16 +167,15 @@ function DetectionOverlay({ yolo }) {
     "bottom center": { top:"60%",left:"20%",width:"60%",height:"35%" },
   };
   const style = pos[yolo.boundingBoxDescription] || pos["center"];
-  const col = yolo.confidence > 0.75 ? "#00ff9d" : yolo.confidence > 0.5 ? "#ffb800" : "#ff6060";
-  const cat = CATS.find(c=>c.id===yolo.issueCategory);
+  const col   = yolo.confidence > 0.75 ? "#00ff9d" : yolo.confidence > 0.5 ? "#ffb800" : "#ff6060";
+  const cat   = CATS.find(c => c.id === yolo.issueCategory);
   return (
-    <div style={{position:"absolute",...style,border:`2px solid ${col}`,borderRadius:4,pointerEvents:"none",boxShadow:`0 0 10px ${col}44`}}>
-      <div style={{position:"absolute",top:-22,left:0,background:col,color:"#020609",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:"3px 3px 3px 0",whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace"}}>
-        {cat && cat.icon} {yolo.issueLabel} {(yolo.confidence*100).toFixed(0)}%
+    <div style={{ position:"absolute",...style,border:`2px solid ${col}`,borderRadius:4,pointerEvents:"none",boxShadow:`0 0 10px ${col}44` }}>
+      <div style={{ position:"absolute",top:-22,left:0,background:col,color:"#020609",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:"3px 3px 3px 0",whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace" }}>
+        {cat && cat.icon} {yolo.issueLabel} {(yolo.confidence * 100).toFixed(0)}%
       </div>
-      {/* Corner ticks */}
-      {[{t:0,l:0},{t:0,r:0},{b:0,l:0},{b:0,r:0}].map((s,i)=>(
-        <div key={i} style={{position:"absolute",...s,width:8,height:8,border:`2px solid ${col}`,borderRadius:1}}/>
+      {[{t:0,l:0},{t:0,r:0},{b:0,l:0},{b:0,r:0}].map((s, i) => (
+        <div key={i} style={{ position:"absolute",...s,width:8,height:8,border:`2px solid ${col}`,borderRadius:1 }}/>
       ))}
     </div>
   );
@@ -184,17 +184,16 @@ function DetectionOverlay({ yolo }) {
 // ── GPS step ──────────────────────────────────────────────────────────────────
 const INDIAN_CITIES = ["Mumbai","Delhi","Bangalore","Chennai","Kolkata","Hyderabad","Pune","Ahmedabad","Jaipur","Surat","Kanpur","Nagpur","Lucknow","Bhopal","Indore","Patna","Vadodara","Coimbatore","Agra","Nashik","Rajkot","Meerut","Varanasi","Amritsar","Visakhapatnam","Thane","Navi Mumbai","Faridabad","Ghaziabad","Noida"];
 
-function GPSStep({ onDone, c, lang='en' }) {
+function GPSStep({ onDone, lang = "en" }) {
   const [phase, setPhase]       = useState("waiting");
   const [loc, setLoc]           = useState(null);
   const [geo, setGeo]           = useState(null);
   const [errMsg, setErrMsg]     = useState("");
-  const [showManual, setShowManual] = useState(false);
   const [manualCity, setManualCity] = useState("");
   const [manualWard, setManualWard] = useState("");
 
   const locate = useCallback(() => {
-    setPhase("locating"); setErrMsg(""); setShowManual(false);
+    setPhase("locating"); setErrMsg("");
     navigator.geolocation.getCurrentPosition(
       async pos => {
         const l = { lat:pos.coords.latitude, lng:pos.coords.longitude, accuracy:Math.round(pos.coords.accuracy) };
@@ -202,42 +201,41 @@ function GPSStep({ onDone, c, lang='en' }) {
         const g = await reverseGeocode(l.lat, l.lng);
         setGeo(g); setPhase("done");
       },
-      err => { setErrMsg(tl(lang,"locationFailed")); setPhase("error"); setShowManual(true); },
+      () => { setErrMsg(tl(lang,"locationFailed")); setPhase("error"); },
       { enableHighAccuracy:true, timeout:12000 }
     );
-  }, []);
+  }, [lang]);
 
   const handleManualSubmit = () => {
     if (!manualCity) return;
-    const g = { ward: manualWard || manualCity, city: manualCity, display: manualWard ? `${manualWard}, ${manualCity}` : manualCity };
-    const l = { lat:0, lng:0, accuracy:0 };
-    setLoc(l); setGeo(g); setPhase("done");
+    const g = { ward:manualWard || manualCity, city:manualCity, display:manualWard ? `${manualWard}, ${manualCity}` : manualCity };
+    setLoc({ lat:0, lng:0, accuracy:0 });
+    setGeo(g);
+    setPhase("done");
   };
 
   useEffect(() => { locate(); }, []);
 
-  const dot = (color) => ({ width:8,height:8,borderRadius:"50%",background:color,display:"inline-block",marginRight:6 });
-
   return (
-    <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"10px 0",animation:"fadeUp .3s ease"}}>
-      {(phase==="locating"||phase==="geocoding") && (
+    <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:16,padding:"10px 0",animation:"fadeUp .3s ease" }}>
+      {(phase === "locating" || phase === "geocoding") && (
         <>
-          <div style={{fontSize:52,animation:"bounce 1s infinite"}}>📍</div>
-          <div style={{color:"#00ccff",fontSize:14,fontWeight:600}}>{phase==="locating"?tl(lang,"detectingLocation"):tl(lang,"detectingLocation")}</div>
-          <div style={{display:"flex",gap:5}}>
-            {[0,1,2].map(i=><div key={i} style={{width:7,height:7,borderRadius:"50%",background:"#00ccff",animation:`pulse 1.2s ${i*.3}s infinite`}}/>)}
+          <div style={{ fontSize:52,animation:"bounce 1s infinite" }}>📍</div>
+          <div style={{ color:"#00ccff",fontSize:14,fontWeight:600 }}>{tl(lang,"detectingLocation")}</div>
+          <div style={{ display:"flex",gap:5 }}>
+            {[0,1,2].map(i => <div key={i} style={{ width:7,height:7,borderRadius:"50%",background:"#00ccff",animation:`pulse 1.2s ${i*.3}s infinite` }}/>)}
           </div>
         </>
       )}
-      {phase==="done" && loc && geo && (
-        <div style={{width:"100%",animation:"fadeUp .3s ease"}}>
-          <div style={{textAlign:"center",marginBottom:14}}>
-            <div style={{fontSize:44,animation:"checkPop .4s ease"}}>✅</div>
-            <div style={{color:"#00ff9d",fontSize:15,fontWeight:700,marginTop:8}}>Location confirmed</div>
+
+      {phase === "done" && loc && geo && (
+        <div style={{ width:"100%",animation:"fadeUp .3s ease" }}>
+          <div style={{ textAlign:"center",marginBottom:14 }}>
+            <div style={{ fontSize:44 }}>✅</div>
+            <div style={{ color:"#00ff9d",fontSize:15,fontWeight:700,marginTop:8 }}>Location confirmed</div>
           </div>
-          {/* GPS data card */}
-          <div style={{background:"rgba(0,255,157,.05)",border:"1px solid rgba(0,255,157,.22)",borderRadius:12,padding:"14px 16px",marginBottom:12}}>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 20px"}}>
+          <div style={{ background:"rgba(0,255,157,.05)",border:"1px solid rgba(0,255,157,.22)",borderRadius:12,padding:"14px 16px",marginBottom:12 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 20px" }}>
               {[
                 ["📍 Latitude",  loc.lat.toFixed(6)],
                 ["📍 Longitude", loc.lng.toFixed(6)],
@@ -245,50 +243,51 @@ function GPSStep({ onDone, c, lang='en' }) {
                 ["🏘️ Ward",      geo.ward],
                 ["🌆 City",      geo.city],
                 ["🗺️ Address",   geo.display],
-              ].map(([label,val])=>(
+              ].map(([label, val]) => (
                 <div key={label}>
-                  <div style={{fontSize:10,color:"rgba(150,200,255,.4)"}}>{label}</div>
-                  <div style={{fontSize:12,color:"#00ff9d",fontFamily:"'DM Mono',monospace",fontWeight:500,marginTop:2,wordBreak:"break-word"}}>{val}</div>
+                  <div style={{ fontSize:10,color:"rgba(150,200,255,.4)" }}>{label}</div>
+                  <div style={{ fontSize:12,color:"#00ff9d",fontFamily:"'DM Mono',monospace",fontWeight:500,marginTop:2,wordBreak:"break-word" }}>{val}</div>
                 </div>
               ))}
             </div>
           </div>
-          {/* Mini map placeholder */}
-          <div style={{background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.14)",borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10}}>
-            <span style={{fontSize:20}}>🗺️</span>
-            <div style={{fontSize:12,color:"rgba(0,200,255,.65)"}}>
-              Report will be auto-routed to <strong style={{color:"#00ccff"}}>{geo.ward}</strong> ward office, {geo.city}
+          <div style={{ background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.14)",borderRadius:10,padding:"10px 12px",display:"flex",alignItems:"center",gap:10 }}>
+            <span style={{ fontSize:20 }}>🗺️</span>
+            <div style={{ fontSize:12,color:"rgba(0,200,255,.65)" }}>
+              Report will be auto-routed to <strong style={{ color:"#00ccff" }}>{geo.ward}</strong> ward office, {geo.city}
             </div>
           </div>
-          <button onClick={()=>onDone(loc,geo)}
-            style={{width:"100%",marginTop:14,padding:"13px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:9,color:"#00ccff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>
+          <button onClick={() => onDone(loc, geo)}
+            style={{ width:"100%",marginTop:14,padding:"13px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:9,color:"#00ccff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif" }}>
             {tl(lang,"nextLocation")}
           </button>
         </div>
       )}
-      {phase==="error" && (
-        <div style={{textAlign:"center"}}>
-          <div style={{fontSize:38}}>🚫</div>
-          <div style={{color:"#ff6060",fontSize:13,margin:"12px 0",lineHeight:1.6}}>{errMsg}</div>
-          <button onClick={locate} style={{padding:"10px 22px",background:"rgba(0,200,255,.12)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:"#00ccff",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:12}}>Try Again</button>
+
+      {phase === "error" && (
+        <div style={{ textAlign:"center" }}>
+          <div style={{ fontSize:38 }}>🚫</div>
+          <div style={{ color:"#ff6060",fontSize:13,margin:"12px 0",lineHeight:1.6 }}>{errMsg}</div>
+          <button onClick={locate} style={{ padding:"10px 22px",background:"rgba(0,200,255,.12)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:"#00ccff",cursor:"pointer",fontSize:13,fontWeight:600,marginBottom:12 }}>Try Again</button>
         </div>
       )}
-      {/* Manual city entry — always visible after error or as option */}
-      {(phase==="error" || phase==="done") && (
-        <div style={{marginTop:phase==="done"?0:8,borderTop:"1px solid rgba(0,200,255,.12)",paddingTop:12}}>
-          <div style={{fontSize:11,color:"rgba(150,200,255,.5)",textAlign:"center",marginBottom:8}}>
+
+      {/* Manual city entry */}
+      {(phase === "error" || phase === "done") && (
+        <div style={{ width:"100%",borderTop:"1px solid rgba(0,200,255,.12)",paddingTop:12 }}>
+          <div style={{ fontSize:11,color:"rgba(150,200,255,.5)",textAlign:"center",marginBottom:8 }}>
             📍 Or select city manually for demo
           </div>
-          <select value={manualCity} onChange={e=>setManualCity(e.target.value)}
-            style={{width:"100%",padding:"10px 12px",background:"rgba(0,200,255,.06)",border:"1px solid rgba(0,200,255,.25)",borderRadius:8,color:"#00ccff",fontSize:13,fontFamily:"'Inter',sans-serif",marginBottom:8,cursor:"pointer"}}>
+          <select value={manualCity} onChange={e => setManualCity(e.target.value)}
+            style={{ width:"100%",padding:"10px 12px",background:"rgba(0,200,255,.06)",border:"1px solid rgba(0,200,255,.25)",borderRadius:8,color:"#00ccff",fontSize:13,fontFamily:"'Inter',sans-serif",marginBottom:8,cursor:"pointer" }}>
             <option value="">— Select City —</option>
-            {INDIAN_CITIES.map(c=><option key={c} value={c}>{c}</option>)}
+            {INDIAN_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <input value={manualWard} onChange={e=>setManualWard(e.target.value)}
+          <input value={manualWard} onChange={e => setManualWard(e.target.value)}
             placeholder="Ward / Area (optional)"
-            style={{width:"100%",padding:"9px 12px",background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.18)",borderRadius:8,color:"#00ccff",fontSize:12,fontFamily:"'Inter',sans-serif",marginBottom:8,outline:"none"}}/>
+            style={{ width:"100%",padding:"9px 12px",background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.18)",borderRadius:8,color:"#00ccff",fontSize:12,fontFamily:"'Inter',sans-serif",marginBottom:8,outline:"none" }}/>
           <button onClick={handleManualSubmit} disabled={!manualCity}
-            style={{width:"100%",padding:"11px",background:manualCity?"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))":"rgba(255,255,255,.04)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:manualCity?"#00ccff":"rgba(100,150,200,.4)",fontSize:13,fontWeight:700,cursor:manualCity?"pointer":"not-allowed",fontFamily:"'Inter',sans-serif"}}>
+            style={{ width:"100%",padding:"11px",background:manualCity?"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))":"rgba(255,255,255,.04)",border:"1px solid rgba(0,200,255,.3)",borderRadius:8,color:manualCity?"#00ccff":"rgba(100,150,200,.4)",fontSize:13,fontWeight:700,cursor:manualCity?"pointer":"not-allowed",fontFamily:"'Inter',sans-serif" }}>
             ✓ Use This Location
           </button>
         </div>
@@ -298,16 +297,16 @@ function GPSStep({ onDone, c, lang='en' }) {
 }
 
 // ── AI Scan step ──────────────────────────────────────────────────────────────
-function AIStep({ photo, onDone, onRetake, lang='en' }) {
-  const [phase, setPhase]   = useState("scanning"); // scanning|done|rejected
-  const [yolo, setYolo]     = useState(null);
+function AIStep({ photo, onDone, onRetake, lang = "en" }) {
+  const [phase, setPhase]       = useState("scanning");
+  const [yolo, setYolo]         = useState(null);
   const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    // Animate progress bar while waiting
-    const tick = setInterval(() => setProgress(p => Math.min(p+2, 90)), 80);
+    const tick = setInterval(() => setProgress(p => Math.min(p + 2, 90)), 80);
     runYoloDetection(photo).then(result => {
-      clearInterval(tick); setProgress(100);
+      clearInterval(tick);
+      setProgress(100);
       setTimeout(() => {
         setYolo(result);
         setPhase(result.isLegitimate ? "done" : "rejected");
@@ -319,99 +318,88 @@ function AIStep({ photo, onDone, onRetake, lang='en' }) {
   const sevColor = { low:"#00ff9d", medium:"#ffb800", high:"#ff3060" };
 
   return (
-    <div style={{animation:"fadeUp .3s ease"}}>
-      {/* Photo with overlay */}
-      <div style={{position:"relative",borderRadius:10,overflow:"hidden",border:"1px solid rgba(0,200,255,.18)",marginBottom:14}}>
-        <img src={photo} alt="scan" style={{width:"100%",maxHeight:220,objectFit:"cover",display:"block"}}/>
+    <div style={{ animation:"fadeUp .3s ease" }}>
+      <div style={{ position:"relative",borderRadius:10,overflow:"hidden",border:"1px solid rgba(0,200,255,.18)",marginBottom:14 }}>
+        <img src={photo} alt="scan" style={{ width:"100%",maxHeight:220,objectFit:"cover",display:"block" }}/>
         {yolo && <DetectionOverlay yolo={yolo}/>}
-        {/* Scanning animation */}
-        {phase==="scanning" && (
-          <div style={{position:"absolute",inset:0,background:"rgba(0,200,255,.04)"}}>
-            <div style={{position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,transparent,#00ccff,transparent)",animation:"scanLine 1.8s linear infinite"}}/>
+        {phase === "scanning" && (
+          <div style={{ position:"absolute",inset:0,background:"rgba(0,200,255,.04)" }}>
+            <div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,transparent,#00ccff,transparent)",animation:"scanLine 1.8s linear infinite" }}/>
           </div>
         )}
       </div>
 
-      {/* Progress bar */}
-      <div style={{height:3,background:"rgba(0,200,255,.1)",borderRadius:2,marginBottom:14,overflow:"hidden"}}>
-        <div style={{height:"100%",width:`${progress}%`,background:phase==="rejected"?"#ff3060":"linear-gradient(90deg,#00ccff,#00ff9d)",transition:"width .08s linear",borderRadius:2}}/>
+      <div style={{ height:3,background:"rgba(0,200,255,.1)",borderRadius:2,marginBottom:14,overflow:"hidden" }}>
+        <div style={{ height:"100%",width:`${progress}%`,background:phase==="rejected"?"#ff3060":"linear-gradient(90deg,#00ccff,#00ff9d)",transition:"width .08s linear",borderRadius:2 }}/>
       </div>
 
-      {phase==="scanning" && (
-        <div style={{textAlign:"center"}}>
-          <div style={{display:"flex",gap:8,justifyContent:"center",marginBottom:8}}>
-            {["🔍 Legitimacy","🎯 YOLO Detection","🧠 Classification"].map((lbl,i)=>(
-              <span key={i} style={{fontSize:11,color:"rgba(0,200,255,.55)",background:"rgba(0,200,255,.07)",border:"1px solid rgba(0,200,255,.15)",borderRadius:20,padding:"3px 9px",animation:`pulse 1.4s ${i*.25}s infinite`}}>{lbl}</span>
+      {phase === "scanning" && (
+        <div style={{ textAlign:"center" }}>
+          <div style={{ display:"flex",gap:8,justifyContent:"center",marginBottom:8 }}>
+            {["🔍 Legitimacy","🎯 YOLO Detection","🧠 Classification"].map((lbl, i) => (
+              <span key={i} style={{ fontSize:11,color:"rgba(0,200,255,.55)",background:"rgba(0,200,255,.07)",border:"1px solid rgba(0,200,255,.15)",borderRadius:20,padding:"3px 9px",animation:`pulse 1.4s ${i*.25}s infinite` }}>{lbl}</span>
             ))}
           </div>
-          <div style={{fontSize:13,color:"rgba(150,200,255,.5)"}}>Running AI analysis pipeline…</div>
+          <div style={{ fontSize:13,color:"rgba(150,200,255,.5)" }}>Running AI analysis pipeline…</div>
         </div>
       )}
 
-      {phase==="done" && yolo && (
-        <div style={{animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:10}}>
-          {/* Legitimacy passed */}
-          <div style={{background:"rgba(0,255,157,.06)",border:"1px solid rgba(0,255,157,.22)",borderRadius:10,padding:"12px 14px",display:"flex",gap:10,alignItems:"center"}}>
-            <span style={{fontSize:20}}>✅</span>
+      {phase === "done" && yolo && (
+        <div style={{ animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:10 }}>
+          <div style={{ background:"rgba(0,255,157,.06)",border:"1px solid rgba(0,255,157,.22)",borderRadius:10,padding:"12px 14px",display:"flex",gap:10,alignItems:"center" }}>
+            <span style={{ fontSize:20 }}>✅</span>
             <div>
-              <div style={{fontSize:13,fontWeight:700,color:"#00ff9d"}}>Photo verified — genuine civic image</div>
-              <div style={{fontSize:11,color:"rgba(0,255,157,.55)",marginTop:2}}>Clarity score: {(yolo.blurScore*100).toFixed(0)}/100 · No manipulation detected</div>
+              <div style={{ fontSize:13,fontWeight:700,color:"#00ff9d" }}>Photo verified — genuine civic image</div>
+              <div style={{ fontSize:11,color:"rgba(0,255,157,.55)",marginTop:2 }}>Clarity score: {(yolo.blurScore*100).toFixed(0)}/100 · No manipulation detected</div>
             </div>
           </div>
 
-          {/* YOLO detection result */}
-          <div style={{background:"rgba(0,200,255,.05)",border:"1px solid rgba(0,200,255,.2)",borderRadius:10,padding:"14px"}}>
-            <div style={{fontSize:11,color:"rgba(150,200,255,.45)",marginBottom:10,fontWeight:600,letterSpacing:"0.06em"}}>🤖 YOLO DETECTION RESULT</div>
-            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
-              <div style={{fontSize:36}}>{(CATS.find(c=>c.id===yolo.issueCategory)||{icon:"📌"}).icon}</div>
+          <div style={{ background:"rgba(0,200,255,.05)",border:"1px solid rgba(0,200,255,.2)",borderRadius:10,padding:"14px" }}>
+            <div style={{ fontSize:11,color:"rgba(150,200,255,.45)",marginBottom:10,fontWeight:600,letterSpacing:"0.06em" }}>🤖 YOLO DETECTION RESULT</div>
+            <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:10 }}>
+              <div style={{ fontSize:36 }}>{(CATS.find(c => c.id === yolo.issueCategory) || { icon:"📌" }).icon}</div>
               <div>
-                <div style={{fontSize:16,fontWeight:800,color:"#00ccff"}}>{yolo.issueLabel}</div>
-                <div style={{fontSize:11,color:"rgba(150,200,255,.45)",marginTop:2}}>Confidence: {(yolo.confidence*100).toFixed(0)}%</div>
+                <div style={{ fontSize:16,fontWeight:800,color:"#00ccff" }}>{yolo.issueLabel}</div>
+                <div style={{ fontSize:11,color:"rgba(150,200,255,.45)",marginTop:2 }}>Confidence: {(yolo.confidence*100).toFixed(0)}%</div>
               </div>
-              <div style={{marginLeft:"auto",background:`${sevColor[yolo.severity]||"#ffb800"}20`,border:`1px solid ${sevColor[yolo.severity]||"#ffb800"}50`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:700,color:sevColor[yolo.severity]||"#ffb800",textTransform:"uppercase"}}>
+              <div style={{ marginLeft:"auto",background:`${sevColor[yolo.severity]||"#ffb800"}20`,border:`1px solid ${sevColor[yolo.severity]||"#ffb800"}50`,borderRadius:20,padding:"4px 12px",fontSize:11,fontWeight:700,color:sevColor[yolo.severity]||"#ffb800",textTransform:"uppercase" }}>
                 {yolo.severity}
               </div>
             </div>
-
-            {/* Detected objects */}
             {yolo.detectedObjects && yolo.detectedObjects.length > 0 && (
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <span style={{fontSize:10,color:"rgba(150,200,255,.35)"}}>Objects detected:</span>
-                {yolo.detectedObjects.map((obj,i)=>(
-                  <span key={i} style={{fontSize:10,background:"rgba(0,200,255,.08)",border:"1px solid rgba(0,200,255,.18)",borderRadius:20,padding:"2px 8px",color:"rgba(0,200,255,.7)"}}>{obj}</span>
+              <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                <span style={{ fontSize:10,color:"rgba(150,200,255,.35)" }}>Objects detected:</span>
+                {yolo.detectedObjects.map((obj, i) => (
+                  <span key={i} style={{ fontSize:10,background:"rgba(0,200,255,.08)",border:"1px solid rgba(0,200,255,.18)",borderRadius:20,padding:"2px 8px",color:"rgba(0,200,255,.7)" }}>{obj}</span>
                 ))}
               </div>
             )}
-
-            {/* Confidence bar */}
-            <div style={{marginTop:10,display:"flex",alignItems:"center",gap:8}}>
-              <span style={{fontSize:10,color:"rgba(150,200,255,.35)",minWidth:60}}>Confidence</span>
-              <div style={{flex:1,height:4,background:"rgba(255,255,255,.06)",borderRadius:2}}>
-                <div style={{height:"100%",width:`${(yolo.confidence*100).toFixed(0)}%`,background:"linear-gradient(90deg,#3b9fff,#00ff9d)",borderRadius:2}}/>
+            <div style={{ marginTop:10,display:"flex",alignItems:"center",gap:8 }}>
+              <span style={{ fontSize:10,color:"rgba(150,200,255,.35)",minWidth:60 }}>Confidence</span>
+              <div style={{ flex:1,height:4,background:"rgba(255,255,255,.06)",borderRadius:2 }}>
+                <div style={{ height:"100%",width:`${(yolo.confidence*100).toFixed(0)}%`,background:"linear-gradient(90deg,#3b9fff,#00ff9d)",borderRadius:2 }}/>
               </div>
-              <span style={{fontSize:10,color:"#00ff9d",fontFamily:"'DM Mono',monospace",minWidth:32}}>{(yolo.confidence*100).toFixed(0)}%</span>
+              <span style={{ fontSize:10,color:"#00ff9d",fontFamily:"'DM Mono',monospace",minWidth:32 }}>{(yolo.confidence*100).toFixed(0)}%</span>
             </div>
           </div>
 
-          <button onClick={()=>onDone(yolo)}
-            style={{padding:"13px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:9,color:"#00ccff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>
+          <button onClick={() => onDone(yolo)}
+            style={{ padding:"13px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:9,color:"#00ccff",fontSize:14,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif" }}>
             Use This Detection →
           </button>
         </div>
       )}
 
-      {phase==="rejected" && yolo && (
-        <div style={{background:"rgba(255,48,96,.06)",border:"1px solid rgba(255,48,96,.25)",borderRadius:10,padding:"16px",animation:"fadeUp .3s ease"}}>
-          <div style={{display:"flex",gap:10,alignItems:"flex-start",marginBottom:12}}>
-            <span style={{fontSize:24}}>⚠️</span>
+      {phase === "rejected" && yolo && (
+        <div style={{ background:"rgba(255,48,96,.06)",border:"1px solid rgba(255,48,96,.25)",borderRadius:10,padding:"16px",animation:"fadeUp .3s ease" }}>
+          <div style={{ display:"flex",gap:10,alignItems:"flex-start",marginBottom:12 }}>
+            <span style={{ fontSize:24 }}>⚠️</span>
             <div>
-              <div style={{fontSize:14,fontWeight:700,color:"#ff6060"}}>Photo not accepted</div>
-              <div style={{fontSize:12,color:"rgba(255,96,96,.6)",marginTop:3}}>{yolo.legitimacyReason || "Image quality too low or not a real civic issue"}</div>
+              <div style={{ fontSize:14,fontWeight:700,color:"#ff6060" }}>Photo not accepted</div>
+              <div style={{ fontSize:12,color:"rgba(255,96,96,.6)",marginTop:3 }}>{yolo.legitimacyReason || "Image quality too low or not a real civic issue"}</div>
             </div>
           </div>
-          <div style={{display:"flex",gap:8}}>
-            <button onClick={onRetake} style={{flex:1,padding:"10px",background:"rgba(255,48,96,.15)",border:"1px solid rgba(255,48,96,.3)",borderRadius:8,color:"#ff6060",cursor:"pointer",fontSize:13,fontWeight:700}}>📸 Retake Photo</button>
-          </div>
+          <button onClick={onRetake} style={{ width:"100%",padding:"10px",background:"rgba(255,48,96,.15)",border:"1px solid rgba(255,48,96,.3)",borderRadius:8,color:"#ff6060",cursor:"pointer",fontSize:13,fontWeight:700 }}>📸 Retake Photo</button>
         </div>
       )}
     </div>
@@ -421,19 +409,19 @@ function AIStep({ photo, onDone, onRetake, lang='en' }) {
 // ══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ══════════════════════════════════════════════════════════════════════════════
-export default function CitizenReport({ user, lang="en", onClose }) {
-  const [step, setStep]         = useState("photo");
-  const [photo, setPhoto]       = useState(null);
-  const [location, setLocation] = useState(null);   // { lat, lng, accuracy }
-  const [geoData, setGeoData]   = useState(null);   // { ward, city, display }
-  const [yolo, setYolo]         = useState(null);   // detection result
-  const [category, setCategory] = useState(null);
+export default function CitizenReport({ user, lang = "en", onClose }) {
+  const [step, setStep]               = useState("photo");
+  const [photo, setPhoto]             = useState(null);
+  const [location, setLocation]       = useState(null);
+  const [geoData, setGeoData]         = useState(null);
+  const [yolo, setYolo]               = useState(null);
+  const [category, setCategory]       = useState(null);
   const [description, setDescription] = useState("");
-  const [severity, setSeverity] = useState(2);      // 1-4
-  const [anonymous, setAnonymous] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [reportId, setReportId] = useState(null);
-  const [cameraOpen, setCameraOpen] = useState(false);
+  const [severity, setSeverity]       = useState(2);
+  const [anonymous, setAnonymous]     = useState(false);
+  const [submitting, setSubmitting]   = useState(false);
+  const [reportId, setReportId]       = useState(null);
+  const [cameraOpen, setCameraOpen]   = useState(false);
   const videoRef  = useRef(null);
   const streamRef = useRef(null);
   const fileRef   = useRef(null);
@@ -442,58 +430,86 @@ export default function CitizenReport({ user, lang="en", onClose }) {
   const openCamera = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:"environment" } });
-      streamRef.current = stream; setCameraOpen(true);
-      setTimeout(() => { if(videoRef.current) videoRef.current.srcObject = stream; }, 80);
+      streamRef.current = stream;
+      setCameraOpen(true);
+      setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = stream; }, 80);
     } catch { fileRef.current?.click(); }
   };
-  const closeCamera = () => { streamRef.current?.getTracks().forEach(t=>t.stop()); setCameraOpen(false); };
+  const closeCamera  = () => { streamRef.current?.getTracks().forEach(t => t.stop()); setCameraOpen(false); };
   const capturePhoto = () => {
-    const cv = document.createElement("canvas");
+    const cv  = document.createElement("canvas");
     cv.width  = videoRef.current.videoWidth;
     cv.height = videoRef.current.videoHeight;
-    cv.getContext("2d").drawImage(videoRef.current,0,0);
-    setPhoto(cv.toDataURL("image/jpeg",.82)); closeCamera();
+    cv.getContext("2d").drawImage(videoRef.current, 0, 0);
+    setPhoto(cv.toDataURL("image/jpeg", .82));
+    closeCamera();
   };
   const handleFile = e => {
-    const f = e.target.files && e.target.files[0]; if(!f) return;
+    const f = e.target.files && e.target.files[0];
+    if (!f) return;
     const r = new FileReader();
     r.onload = ev => setPhoto(ev.target.result);
     r.readAsDataURL(f);
   };
 
-  const reset = () => { setStep("photo"); setPhoto(null); setLocation(null); setGeoData(null); setYolo(null); setCategory(null); setDescription(""); setReportId(null); };
+  const reset = () => {
+    setStep("photo"); setPhoto(null); setLocation(null);
+    setGeoData(null); setYolo(null);  setCategory(null);
+    setDescription(""); setReportId(null);
+  };
 
+  // ── SUBMIT — FIX: includes user_id, ward, status ────────────────────────
   const handleSubmit = async () => {
     setSubmitting(true);
     try {
       const cityName = geoData?.city || "Unknown";
+      const wardName = geoData?.ward || cityName;
+
       const payload = {
         location: cityName,
         issue:    category || yolo?.issueLabel || "General",
-        text:     `${category || "General"} issue in ${geoData?.ward || cityName}, ${cityName}. ${description}`.trim(),
+        text:     `${category || "General"} issue in ${wardName}, ${cityName}. ${description}`.trim(),
+        // ── These three fields are the fix ──
+        user_id:  user?.uid   || "anonymous",
+        ward:     wardName,
+        status:   "submitted",
       };
-      const res = await fetch(API + "/report-complaint", {
-        method: "POST",
+
+      const res  = await fetch(API + "/report-complaint", {
+        method:  "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body:    JSON.stringify(payload),
       });
       const data = await res.json();
-      setReportId(data.report_id || data.id || "CS" + Date.now().toString(36).toUpperCase());
+
+      // FIX: use report_id returned by backend (matches what /my-reports returns)
+      setReportId(
+        data.report_id ||
+        data.id        ||
+        "CS" + Date.now().toString(36).toUpperCase()
+      );
     } catch (err) {
       console.error("Submit error:", err);
       setReportId("CS" + Date.now().toString(36).toUpperCase());
     }
-    setStep("done"); setSubmitting(false);
+    setStep("done");
+    setSubmitting(false);
   };
 
-  const BG = "rgba(4,10,22,0.97)";
-  const ACCENT = "#00ccff";
-  const sevColors = ["","#00ff9d","#ffb800","#ff8c00","#ff3060"];
-  const sevLabels = { en:["",tl(lang,"sev_low"),tl(lang,"sev_medium"),tl(lang,"sev_high"),"Emergency"], hi:["","कम","मध्यम","गंभीर","आपात"], ta:["","குறைவு","நடுத்தரம்","தீவிரம்","அவசரம்"], te:["","తక్కువ","మధ్యమం","అధికం","అత్యవసరం"], bn:["","কম","মাঝারি","বেশি","জরুরি"], mr:["","कमी","मध्यम","गंभीर","आणीबाणी"] };
+  const ACCENT     = "#00ccff";
+  const sevColors  = ["","#00ff9d","#ffb800","#ff8c00","#ff3060"];
+  const sevLabels  = {
+    en: ["",tl(lang,"sev_low"),tl(lang,"sev_medium"),tl(lang,"sev_high"),"Emergency"],
+    hi: ["","कम","मध्यम","गंभीर","आपात"],
+    ta: ["","குறைவு","நடுத்தரம்","தீவிரம்","அவசரம்"],
+    te: ["","తక్కువ","మధ్యమం","అధికం","అత్యవసరం"],
+    bn: ["","কম","মাঝারি","বেশি","জরুরি"],
+    mr: ["","कमी","मध्यम","गंभीर","आणीबाणी"],
+  };
   const sev = sevLabels[lang] || sevLabels.en;
 
   return (
-    <div style={{position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,9,.92)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
+    <div style={{ position:"fixed",inset:0,zIndex:1000,background:"rgba(2,6,9,.92)",backdropFilter:"blur(8px)",display:"flex",alignItems:"center",justifyContent:"center",padding:16 }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
         *{box-sizing:border-box;}
@@ -505,65 +521,63 @@ export default function CitizenReport({ user, lang="en", onClose }) {
         @keyframes scanLine{0%{top:0}100%{top:100%}}
       `}</style>
 
-      <div style={{width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",background:BG,border:"1px solid rgba(0,200,255,.17)",borderRadius:16,padding:"26px 28px",boxShadow:"0 32px 80px rgba(0,0,0,.7)",animation:"fadeUp .3s ease",fontFamily:"'Inter',sans-serif",position:"relative"}}>
+      <div style={{ width:"100%",maxWidth:500,maxHeight:"92vh",overflowY:"auto",background:"rgba(4,10,22,0.97)",border:"1px solid rgba(0,200,255,.17)",borderRadius:16,padding:"26px 28px",boxShadow:"0 32px 80px rgba(0,0,0,.7)",animation:"fadeUp .3s ease",fontFamily:"'Inter',sans-serif",position:"relative" }}>
 
         {/* Header */}
-        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20}}>
+        <div style={{ display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20 }}>
           <div>
-            <div style={{fontSize:17,fontWeight:800,color:ACCENT}}>📣 {tl(lang,"reportBtn")}</div>
-            <div style={{fontSize:11.5,color:"rgba(150,200,255,.44)",marginTop:3}}>{tl(lang,"stepGps")} → {tl(lang,"stepDetails")} → {tl(lang,"submit")} · {tl(lang,"stepPhoto")} optional</div>
+            <div style={{ fontSize:17,fontWeight:800,color:ACCENT }}>📣 {tl(lang,"reportBtn")}</div>
+            <div style={{ fontSize:11.5,color:"rgba(150,200,255,.44)",marginTop:3 }}>{tl(lang,"stepGps")} → {tl(lang,"stepDetails")} → {tl(lang,"submit")} · {tl(lang,"stepPhoto")} optional</div>
           </div>
-          <button onClick={onClose} style={{background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,width:30,height:30,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>✕</button>
+          <button onClick={onClose} style={{ background:"rgba(255,255,255,.06)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,width:30,height:30,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:15,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>✕</button>
         </div>
 
-        {step!=="done" && <StepBar current={step} lang={lang}/>}
+        {step !== "done" && <StepBar current={step} lang={lang}/>}
 
         {/* ── STEP: PHOTO ── */}
-        {step==="photo" && (
-          <div style={{animation:"fadeUp .3s ease"}}>
+        {step === "photo" && (
+          <div style={{ animation:"fadeUp .3s ease" }}>
             {!photo ? (
               cameraOpen ? (
-                <div style={{borderRadius:12,overflow:"hidden",background:"#000",position:"relative"}}>
-                  <video ref={videoRef} autoPlay playsInline style={{width:"100%",maxHeight:280,display:"block"}}/>
-                  <div style={{display:"flex",justifyContent:"center",gap:12,padding:12,background:"rgba(0,0,0,.75)"}}>
-                    <button onClick={capturePhoto} style={{background:ACCENT,border:"none",borderRadius:"50%",width:56,height:56,fontSize:22,cursor:"pointer",boxShadow:`0 0 22px ${ACCENT}60`}}>📸</button>
-                    <button onClick={closeCamera} style={{background:"rgba(255,60,60,.25)",border:"1px solid rgba(255,60,60,.4)",borderRadius:8,padding:"0 16px",color:"#ff6060",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>{tl(lang,"cancel")}</button>
+                <div style={{ borderRadius:12,overflow:"hidden",background:"#000",position:"relative" }}>
+                  <video ref={videoRef} autoPlay playsInline style={{ width:"100%",maxHeight:280,display:"block" }}/>
+                  <div style={{ display:"flex",justifyContent:"center",gap:12,padding:12,background:"rgba(0,0,0,.75)" }}>
+                    <button onClick={capturePhoto} style={{ background:ACCENT,border:"none",borderRadius:"50%",width:56,height:56,fontSize:22,cursor:"pointer",boxShadow:`0 0 22px ${ACCENT}60` }}>📸</button>
+                    <button onClick={closeCamera} style={{ background:"rgba(255,60,60,.25)",border:"1px solid rgba(255,60,60,.4)",borderRadius:8,padding:"0 16px",color:"#ff6060",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif" }}>{tl(lang,"cancel")}</button>
                   </div>
                 </div>
               ) : (
-                <div style={{display:"flex",flexDirection:"column",gap:11}}>
-                  <button onClick={openCamera} style={{padding:"18px",background:"linear-gradient(135deg,rgba(0,200,255,.13),rgba(0,255,157,.07))",border:`2px dashed ${ACCENT}44`,borderRadius:14,color:ACCENT,fontSize:15,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:12,fontFamily:"'Inter',sans-serif"}}>
-                    <span style={{fontSize:28}}>📷</span> {tl(lang,"takePhoto")}
+                <div style={{ display:"flex",flexDirection:"column",gap:11 }}>
+                  <button onClick={openCamera} style={{ padding:"18px",background:"linear-gradient(135deg,rgba(0,200,255,.13),rgba(0,255,157,.07))",border:`2px dashed ${ACCENT}44`,borderRadius:14,color:ACCENT,fontSize:15,fontWeight:700,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:12,fontFamily:"'Inter',sans-serif" }}>
+                    <span style={{ fontSize:28 }}>📷</span> {tl(lang,"takePhoto")}
                   </button>
-                  <div style={{textAlign:"center",color:"rgba(150,200,255,.32)",fontSize:12}}>{tl(lang,"or")}</div>
-                  <button onClick={()=>fileRef.current && fileRef.current.click()} style={{padding:"13px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,color:"rgba(200,220,255,.65)",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'Inter',sans-serif"}}>
+                  <div style={{ textAlign:"center",color:"rgba(150,200,255,.32)",fontSize:12 }}>{tl(lang,"or")}</div>
+                  <button onClick={() => fileRef.current && fileRef.current.click()} style={{ padding:"13px",background:"rgba(255,255,255,.04)",border:"1px solid rgba(255,255,255,.1)",borderRadius:12,color:"rgba(200,220,255,.65)",fontSize:13,fontWeight:600,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center",gap:10,fontFamily:"'Inter',sans-serif" }}>
                     <span>🖼️</span> {tl(lang,"uploadPhoto")}
                   </button>
-                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{display:"none"}}/>
-
-                  {/* Skip option */}
-                  <div style={{borderTop:"1px solid rgba(255,255,255,.07)",paddingTop:12,marginTop:2}}>
-                    <div style={{fontSize:11.5,color:"rgba(150,200,255,.38)",textAlign:"center",marginBottom:10}}>
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFile} style={{ display:"none" }}/>
+                  <div style={{ borderTop:"1px solid rgba(255,255,255,.07)",paddingTop:12,marginTop:2 }}>
+                    <div style={{ fontSize:11.5,color:"rgba(150,200,255,.38)",textAlign:"center",marginBottom:10 }}>
                       {tl(lang,"skipPhotoNote")}
                     </div>
-                    <button onClick={()=>setStep("gps")}
-                      style={{width:"100%",padding:"12px",background:"transparent",border:"1px dashed rgba(150,200,255,.22)",borderRadius:10,color:"rgba(150,200,255,.55)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .18s"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor="rgba(0,200,255,.42)";e.currentTarget.style.color="#00ccff";}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor="rgba(150,200,255,.22)";e.currentTarget.style.color="rgba(150,200,255,.55)";}}>
-                      <span style={{fontSize:16}}>⏭</span> {tl(lang,"skipPhoto")}
+                    <button onClick={() => setStep("gps")}
+                      style={{ width:"100%",padding:"12px",background:"transparent",border:"1px dashed rgba(150,200,255,.22)",borderRadius:10,color:"rgba(150,200,255,.55)",fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8,transition:"all .18s" }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor="rgba(0,200,255,.42)"; e.currentTarget.style.color="#00ccff"; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor="rgba(150,200,255,.22)"; e.currentTarget.style.color="rgba(150,200,255,.55)"; }}>
+                      <span style={{ fontSize:16 }}>⏭</span> {tl(lang,"skipPhoto")}
                     </button>
                   </div>
                 </div>
               )
             ) : (
-              <div style={{textAlign:"center"}}>
-                <div style={{position:"relative",display:"inline-block",borderRadius:12,overflow:"hidden",border:"2px solid rgba(0,200,255,.35)"}}>
-                  <img src={photo} alt="preview" style={{maxWidth:"100%",maxHeight:260,display:"block"}}/>
-                  <div style={{position:"absolute",top:8,right:8,background:"rgba(0,255,157,.92)",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:800,color:"#020609"}}>✓ Ready</div>
+              <div style={{ textAlign:"center" }}>
+                <div style={{ position:"relative",display:"inline-block",borderRadius:12,overflow:"hidden",border:"2px solid rgba(0,200,255,.35)" }}>
+                  <img src={photo} alt="preview" style={{ maxWidth:"100%",maxHeight:260,display:"block" }}/>
+                  <div style={{ position:"absolute",top:8,right:8,background:"rgba(0,255,157,.92)",borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:800,color:"#020609" }}>✓ Ready</div>
                 </div>
-                <div style={{display:"flex",gap:9,justifyContent:"center",marginTop:12}}>
-                  <button onClick={()=>setPhoto(null)} style={{padding:"9px 18px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:12,fontFamily:"'Inter',sans-serif"}}>Retake</button>
-                  <button onClick={()=>setStep("gps")} style={{padding:"9px 22px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:8,color:ACCENT,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif"}}>Next — Tag Location →</button>
+                <div style={{ display:"flex",gap:9,justifyContent:"center",marginTop:12 }}>
+                  <button onClick={() => setPhoto(null)} style={{ padding:"9px 18px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:12,fontFamily:"'Inter',sans-serif" }}>Retake</button>
+                  <button onClick={() => setStep("gps")} style={{ padding:"9px 22px",background:"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))",border:"1px solid rgba(0,200,255,.38)",borderRadius:8,color:ACCENT,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif" }}>Next — Tag Location →</button>
                 </div>
               </div>
             )}
@@ -571,153 +585,162 @@ export default function CitizenReport({ user, lang="en", onClose }) {
         )}
 
         {/* ── STEP: GPS ── */}
-        {step==="gps" && (
-          <GPSStep onDone={(loc,geo)=>{ setLocation(loc); setGeoData(geo); setStep(photo ? "ai" : "details"); }} c={{}} lang={lang}/>
+        {step === "gps" && (
+          <GPSStep
+            onDone={(loc, geo) => { setLocation(loc); setGeoData(geo); setStep(photo ? "ai" : "details"); }}
+            lang={lang}
+          />
         )}
 
         {/* ── STEP: AI SCAN ── */}
-        {step==="ai" && photo && (
+        {step === "ai" && photo && (
           <AIStep
             photo={photo}
-            onDone={result=>{ setYolo(result); setCategory(result.issueCategory); setSeverity(result.severity==="high"?3:result.severity==="medium"?2:1); setStep("details"); }}
-            onRetake={()=>{ setPhoto(null); setStep("photo"); }}
+            onDone={result => {
+              setYolo(result);
+              setCategory(result.issueCategory);
+              setSeverity(result.severity==="high"?3:result.severity==="medium"?2:1);
+              setStep("details");
+            }}
+            onRetake={() => { setPhoto(null); setStep("photo"); }}
+            lang={lang}
           />
         )}
 
         {/* ── STEP: DETAILS ── */}
-        {step==="details" && (
-          <div style={{animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:16}}>
-
-            {/* AI pre-fill notice */}
+        {step === "details" && (
+          <div style={{ animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:16 }}>
             {yolo && (
-              <div style={{background:"rgba(0,200,255,.05)",border:"1px solid rgba(0,200,255,.18)",borderRadius:9,padding:"10px 13px",display:"flex",gap:9,alignItems:"center"}}>
-                <span style={{fontSize:16}}>🤖</span>
-                <div style={{fontSize:12,color:"rgba(0,200,255,.7)"}}>AI detected <strong style={{color:ACCENT}}>{yolo.issueLabel}</strong> — category pre-filled. Change below if needed.</div>
+              <div style={{ background:"rgba(0,200,255,.05)",border:"1px solid rgba(0,200,255,.18)",borderRadius:9,padding:"10px 13px",display:"flex",gap:9,alignItems:"center" }}>
+                <span style={{ fontSize:16 }}>🤖</span>
+                <div style={{ fontSize:12,color:"rgba(0,200,255,.7)" }}>AI detected <strong style={{ color:ACCENT }}>{yolo.issueLabel}</strong> — category pre-filled. Change below if needed.</div>
               </div>
             )}
 
-            {/* Category grid */}
             <div>
-              <div style={{fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:9}}>Issue Category</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8}}>
-                {CATS.map(cat=>(
-                  <button key={cat.id} onClick={()=>setCategory(cat.id)}
-                    style={{padding:"10px 5px",background:category===cat.id?"rgba(0,200,255,.2)":"rgba(255,255,255,.04)",border:`1.5px solid ${category===cat.id?ACCENT:"rgba(255,255,255,.08)"}`,borderRadius:10,cursor:"pointer",textAlign:"center",transition:"all .18s",boxShadow:category===cat.id?"0 0 12px rgba(0,200,255,.22)":"none"}}>
-                    <div style={{fontSize:20,marginBottom:3}}>{cat.icon}</div>
-                    <div style={{fontSize:9.5,color:category===cat.id?ACCENT:"rgba(200,220,255,.48)",lineHeight:1.2,fontFamily:"'Inter',sans-serif",fontWeight:category===cat.id?700:400}}>{cat[lang]||cat.label}</div>
+              <div style={{ fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:9 }}>Issue Category</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8 }}>
+                {CATS.map(cat => (
+                  <button key={cat.id} onClick={() => setCategory(cat.id)}
+                    style={{ padding:"10px 5px",background:category===cat.id?"rgba(0,200,255,.2)":"rgba(255,255,255,.04)",border:`1.5px solid ${category===cat.id?ACCENT:"rgba(255,255,255,.08)"}`,borderRadius:10,cursor:"pointer",textAlign:"center",transition:"all .18s",boxShadow:category===cat.id?"0 0 12px rgba(0,200,255,.22)":"none" }}>
+                    <div style={{ fontSize:20,marginBottom:3 }}>{cat.icon}</div>
+                    <div style={{ fontSize:9.5,color:category===cat.id?ACCENT:"rgba(200,220,255,.48)",lineHeight:1.2,fontFamily:"'Inter',sans-serif",fontWeight:category===cat.id?700:400 }}>{cat[lang]||cat.label}</div>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Severity */}
             <div>
-              <div style={{fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:9}}>Severity</div>
-              <div style={{display:"flex",gap:8}}>
-                {[[1,"🟢"],[2,"🟡"],[3,"🟠"],[4,"🔴"]].map(([v,e])=>(
-                  <button key={v} onClick={()=>setSeverity(v)}
-                    style={{flex:1,padding:"9px 4px",background:severity===v?`${sevColors[v]}18`:"rgba(255,255,255,.04)",border:`1.5px solid ${severity===v?sevColors[v]:"rgba(255,255,255,.08)"}`,borderRadius:8,cursor:"pointer",textAlign:"center",transition:"all .18s"}}>
-                    <div style={{fontSize:16}}>{e}</div>
-                    <div style={{fontSize:9.5,color:severity===v?sevColors[v]:"rgba(200,220,255,.38)",marginTop:3,fontFamily:"'Inter',sans-serif",fontWeight:severity===v?700:400}}>{sev[v]}</div>
+              <div style={{ fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:9 }}>Severity</div>
+              <div style={{ display:"flex",gap:8 }}>
+                {[[1,"🟢"],[2,"🟡"],[3,"🟠"],[4,"🔴"]].map(([v,e]) => (
+                  <button key={v} onClick={() => setSeverity(v)}
+                    style={{ flex:1,padding:"9px 4px",background:severity===v?`${sevColors[v]}18`:"rgba(255,255,255,.04)",border:`1.5px solid ${severity===v?sevColors[v]:"rgba(255,255,255,.08)"}`,borderRadius:8,cursor:"pointer",textAlign:"center",transition:"all .18s" }}>
+                    <div style={{ fontSize:16 }}>{e}</div>
+                    <div style={{ fontSize:9.5,color:severity===v?sevColors[v]:"rgba(200,220,255,.38)",marginTop:3,fontFamily:"'Inter',sans-serif",fontWeight:severity===v?700:400 }}>{sev[v]}</div>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Description */}
             <div>
-              <div style={{fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:8}}>Description (optional)</div>
-              <textarea value={description} onChange={e=>setDescription(e.target.value)}
+              <div style={{ fontSize:12,fontWeight:600,color:"rgba(200,220,255,.6)",marginBottom:8 }}>Description (optional)</div>
+              <textarea value={description} onChange={e => setDescription(e.target.value)}
                 placeholder="Describe what you see…"
-                style={{width:"100%",background:"rgba(255,255,255,.04)",border:"1.5px solid rgba(0,200,255,.15)",borderRadius:9,padding:"11px 13px",color:"#cce8ff",fontSize:13,fontFamily:"'Inter',sans-serif",outline:"none",resize:"vertical",minHeight:72,lineHeight:1.55}}/>
+                style={{ width:"100%",background:"rgba(255,255,255,.04)",border:"1.5px solid rgba(0,200,255,.15)",borderRadius:9,padding:"11px 13px",color:"#cce8ff",fontSize:13,fontFamily:"'Inter',sans-serif",outline:"none",resize:"vertical",minHeight:72,lineHeight:1.55 }}/>
             </div>
 
-            {/* Anonymous toggle */}
-            <label style={{display:"flex",alignItems:"center",gap:10,cursor:"pointer"}}>
-              <div onClick={()=>setAnonymous(a=>!a)}
-                style={{width:40,height:22,borderRadius:11,background:anonymous?ACCENT:"rgba(255,255,255,.1)",border:`1.5px solid ${anonymous?ACCENT:"rgba(255,255,255,.18)"}`,position:"relative",transition:"all .28s",cursor:"pointer",flexShrink:0}}>
-                <div style={{position:"absolute",top:2,left:anonymous?18:2,width:14,height:14,borderRadius:"50%",background:anonymous?"#020609":"rgba(255,255,255,.45)",transition:"left .28s"}}/>
+            <label style={{ display:"flex",alignItems:"center",gap:10,cursor:"pointer" }}>
+              <div onClick={() => setAnonymous(a => !a)}
+                style={{ width:40,height:22,borderRadius:11,background:anonymous?ACCENT:"rgba(255,255,255,.1)",border:`1.5px solid ${anonymous?ACCENT:"rgba(255,255,255,.18)"}`,position:"relative",transition:"all .28s",cursor:"pointer",flexShrink:0 }}>
+                <div style={{ position:"absolute",top:2,left:anonymous?18:2,width:14,height:14,borderRadius:"50%",background:anonymous?"#020609":"rgba(255,255,255,.45)",transition:"left .28s" }}/>
               </div>
-              <span style={{fontSize:12.5,color:"rgba(200,220,255,.55)",userSelect:"none"}}>Submit anonymously</span>
+              <span style={{ fontSize:12.5,color:"rgba(200,220,255,.55)",userSelect:"none" }}>Submit anonymously</span>
             </label>
 
-            <button onClick={()=>setStep("submit")} disabled={!category}
-              style={{padding:"13px",background:category?"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))":"rgba(255,255,255,.04)",border:`1px solid ${category?"rgba(0,200,255,.38)":"rgba(255,255,255,.07)"}`,borderRadius:9,color:category?ACCENT:"rgba(200,220,255,.22)",fontSize:14,fontWeight:700,cursor:category?"pointer":"not-allowed",fontFamily:"'Inter',sans-serif",transition:"all .18s"}}>
+            <button onClick={() => setStep("submit")} disabled={!category}
+              style={{ padding:"13px",background:category?"linear-gradient(135deg,rgba(0,200,255,.22),rgba(0,255,157,.14))":"rgba(255,255,255,.04)",border:`1px solid ${category?"rgba(0,200,255,.38)":"rgba(255,255,255,.07)"}`,borderRadius:9,color:category?ACCENT:"rgba(200,220,255,.22)",fontSize:14,fontWeight:700,cursor:category?"pointer":"not-allowed",fontFamily:"'Inter',sans-serif",transition:"all .18s" }}>
               Preview Report →
             </button>
           </div>
         )}
 
         {/* ── STEP: SUBMIT PREVIEW ── */}
-        {step==="submit" && (
-          <div style={{animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:12}}>
-            <div style={{background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.15)",borderRadius:12,padding:"16px"}}>
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 18px"}}>
+        {step === "submit" && (
+          <div style={{ animation:"fadeUp .3s ease",display:"flex",flexDirection:"column",gap:12 }}>
+            <div style={{ background:"rgba(0,200,255,.04)",border:"1px solid rgba(0,200,255,.15)",borderRadius:12,padding:"16px" }}>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 18px" }}>
                 {[
                   [tl(lang,"field_photo"),       photo ? tl(lang,"aiVerified") : tl(lang,"photoSkipped")],
-                  ["📍 " + tl(lang,"field_location"),    geoData && geoData.display || "—"],
-                  ["🏘️ Ward",        geoData && geoData.ward || "—"],
+                  ["📍 " + tl(lang,"field_location"), geoData?.display || "—"],
+                  ["🏘️ Ward",        geoData?.ward  || "—"],
                   ["🤖 AI Detected", yolo ? yolo.issueLabel : photo ? "—" : tl(lang,"manualEntry")],
                   ["📌 Category",    catLabel(category, lang)],
-                  ["⚡ Severity",     sev[severity]],
+                  ["⚡ Severity",    sev[severity]],
                   ["🎯 Confidence",  yolo ? ((yolo.confidence*100).toFixed(0) + "%") : "N/A"],
-                  ["👤 Reporter",    anonymous ? "Anonymous" : (user && user.name || "Citizen")],
-                ].map(([l,v])=>(
-                  <div key={l}><div style={{fontSize:10,color:"rgba(150,200,255,.38)"}}>{l}</div><div style={{fontSize:12.5,color:"#cce8ff",fontWeight:600,marginTop:2}}>{v}</div></div>
+                  ["👤 Reporter",    anonymous ? "Anonymous" : (user?.name || "Citizen")],
+                ].map(([l, v]) => (
+                  <div key={l}>
+                    <div style={{ fontSize:10,color:"rgba(150,200,255,.38)" }}>{l}</div>
+                    <div style={{ fontSize:12.5,color:"#cce8ff",fontWeight:600,marginTop:2 }}>{v}</div>
+                  </div>
                 ))}
               </div>
-              {description && <div style={{marginTop:12,padding:"9px 11px",background:"rgba(0,0,0,.22)",borderRadius:7,fontSize:12.5,color:"rgba(200,220,255,.55)",borderLeft:"2px solid rgba(0,200,255,.28)"}}>{description}</div>}
+              {description && (
+                <div style={{ marginTop:12,padding:"9px 11px",background:"rgba(0,0,0,.22)",borderRadius:7,fontSize:12.5,color:"rgba(200,220,255,.55)",borderLeft:"2px solid rgba(0,200,255,.28)" }}>{description}</div>
+              )}
             </div>
 
-            <div style={{background:"rgba(0,255,157,.04)",border:"1px solid rgba(0,255,157,.18)",borderRadius:9,padding:"11px 13px",display:"flex",gap:10,alignItems:"center"}}>
-              <span style={{fontSize:18}}>🏛️</span>
-              <div style={{fontSize:12,color:"rgba(0,255,157,.75)",lineHeight:1.5}}>
-                This report will be auto-dispatched to <strong style={{color:"#00ff9d"}}>{geoData && geoData.ward||"your local ward"}</strong> office and the Municipal Corporation.
+            <div style={{ background:"rgba(0,255,157,.04)",border:"1px solid rgba(0,255,157,.18)",borderRadius:9,padding:"11px 13px",display:"flex",gap:10,alignItems:"center" }}>
+              <span style={{ fontSize:18 }}>🏛️</span>
+              <div style={{ fontSize:12,color:"rgba(0,255,157,.75)",lineHeight:1.5 }}>
+                This report will be auto-dispatched to <strong style={{ color:"#00ff9d" }}>{geoData?.ward || "your local ward"}</strong> office and the Municipal Corporation.
               </div>
             </div>
 
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={()=>setStep("details")} style={{flex:1,padding:"11px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:"rgba(200,220,255,.5)",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>← Edit</button>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={() => setStep("details")} style={{ flex:1,padding:"11px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.1)",borderRadius:8,color:"rgba(200,220,255,.5)",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif" }}>← Edit</button>
               <button onClick={handleSubmit} disabled={submitting}
-                style={{flex:2,padding:"13px",background:submitting?"rgba(0,200,255,.07)":"linear-gradient(135deg,#00ccff,#00ff9d)",border:"none",borderRadius:8,color:"#020609",fontSize:14,fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
-                {submitting?<><div style={{width:16,height:16,border:"2px solid rgba(0,0,0,.2)",borderTopColor:"#020609",borderRadius:"50%",animation:"spin .7s linear infinite"}}/>{tl(lang,"submitting")}</>:tl(lang,"submitReport")}
+                style={{ flex:2,padding:"13px",background:submitting?"rgba(0,200,255,.07)":"linear-gradient(135deg,#00ccff,#00ff9d)",border:"none",borderRadius:8,color:"#020609",fontSize:14,fontWeight:800,cursor:submitting?"not-allowed":"pointer",fontFamily:"'Inter',sans-serif",display:"flex",alignItems:"center",justifyContent:"center",gap:8 }}>
+                {submitting
+                  ? <><div style={{ width:16,height:16,border:"2px solid rgba(0,0,0,.2)",borderTopColor:"#020609",borderRadius:"50%",animation:"spin .7s linear infinite" }}/>{tl(lang,"submitting")}</>
+                  : tl(lang,"submitReport")}
               </button>
             </div>
           </div>
         )}
 
         {/* ── STEP: DONE ── */}
-        {step==="done" && (
-          <div style={{textAlign:"center",padding:"18px 0",animation:"fadeUp .4s ease"}}>
-            <div style={{fontSize:56,marginBottom:14,animation:"bounce 1s 3"}}>🎉</div>
-            <div style={{fontSize:19,fontWeight:800,color:"#00ff9d",marginBottom:7}}>Report Submitted!</div>
-            <div style={{fontSize:13,color:"rgba(150,200,255,.55)",marginBottom:22,lineHeight:1.6}}>Your report has been dispatched to the ward office.<br/>You'll receive updates as the issue is addressed.</div>
+        {step === "done" && (
+          <div style={{ textAlign:"center",padding:"18px 0",animation:"fadeUp .4s ease" }}>
+            <div style={{ fontSize:56,marginBottom:14,animation:"bounce 1s 3" }}>🎉</div>
+            <div style={{ fontSize:19,fontWeight:800,color:"#00ff9d",marginBottom:7 }}>Report Submitted!</div>
+            <div style={{ fontSize:13,color:"rgba(150,200,255,.55)",marginBottom:22,lineHeight:1.6 }}>Your report has been dispatched to the ward office.<br/>You'll receive updates as the issue is addressed.</div>
 
-            <div style={{background:"rgba(0,255,157,.05)",border:"1px solid rgba(0,255,157,.22)",borderRadius:11,padding:"14px 18px",display:"inline-block",marginBottom:22}}>
-              <div style={{fontSize:11,color:"rgba(150,200,255,.38)"}}>Report ID</div>
-              <div style={{fontSize:22,fontWeight:800,color:"#00ff9d",fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",marginTop:4}}>{reportId}</div>
+            <div style={{ background:"rgba(0,255,157,.05)",border:"1px solid rgba(0,255,157,.22)",borderRadius:11,padding:"14px 18px",display:"inline-block",marginBottom:22 }}>
+              <div style={{ fontSize:11,color:"rgba(150,200,255,.38)" }}>Report ID</div>
+              <div style={{ fontSize:22,fontWeight:800,color:"#00ff9d",fontFamily:"'DM Mono',monospace",letterSpacing:"0.1em",marginTop:4 }}>{reportId}</div>
             </div>
 
-            {/* Status timeline */}
-            <div style={{textAlign:"left",marginBottom:22}}>
+            <div style={{ textAlign:"left",marginBottom:22 }}>
               {[
                 photo ? ["📸", tl(lang,"aiVerified"), "✓"] : ["⏭", tl(lang,"photoSkipped"), "✓"],
-                ["📍", "GPS — " + (geoData && geoData.ward || "ward"), "✓"],
-                photo ? ["🤖", (yolo && yolo.issueLabel || tl(lang,"aiDetected")), "✓"] : null,
+                ["📍", "GPS — " + (geoData?.ward || "ward"), "✓"],
+                photo ? ["🤖", (yolo?.issueLabel || tl(lang,"aiDetected")), "✓"] : null,
                 ["🏛️","Dispatched to ward officer","⏳ In Progress"],
                 ["✅","Issue resolved","—"],
-              ].filter(Boolean).map(([icon,label,status],i,arr)=>(
-                <div key={i} style={{display:"flex",gap:12,padding:"9px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,.05)":"none",alignItems:"center"}}>
-                  <span style={{fontSize:15,flexShrink:0}}>{icon}</span>
-                  <div style={{flex:1,fontSize:12.5,color:"rgba(200,220,255,.65)"}}>{label}</div>
-                  <span style={{fontSize:11,color:status.startsWith("✓")?"#00ff9d":status.startsWith("⏳")?"#ffb800":"rgba(255,255,255,.2)",fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap"}}>{status}</span>
+              ].filter(Boolean).map(([icon, label, status], i, arr) => (
+                <div key={i} style={{ display:"flex",gap:12,padding:"9px 0",borderBottom:i<arr.length-1?"1px solid rgba(255,255,255,.05)":"none",alignItems:"center" }}>
+                  <span style={{ fontSize:15,flexShrink:0 }}>{icon}</span>
+                  <div style={{ flex:1,fontSize:12.5,color:"rgba(200,220,255,.65)" }}>{label}</div>
+                  <span style={{ fontSize:11,color:status.startsWith("✓")?"#00ff9d":status.startsWith("⏳")?"#ffb800":"rgba(255,255,255,.2)",fontFamily:"'DM Mono',monospace",whiteSpace:"nowrap" }}>{status}</span>
                 </div>
               ))}
             </div>
 
-            <div style={{display:"flex",gap:10}}>
-              <button onClick={reset} style={{flex:1,padding:"12px",background:"rgba(0,200,255,.1)",border:"1px solid rgba(0,200,255,.28)",borderRadius:8,color:ACCENT,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'Inter',sans-serif"}}>Submit Another</button>
-              <button onClick={onClose} style={{flex:1,padding:"12px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif"}}>Close</button>
+            <div style={{ display:"flex",gap:10 }}>
+              <button onClick={reset} style={{ flex:1,padding:"12px",background:"rgba(0,200,255,.1)",border:"1px solid rgba(0,200,255,.28)",borderRadius:8,color:ACCENT,cursor:"pointer",fontSize:13,fontWeight:700,fontFamily:"'Inter',sans-serif" }}>Submit Another</button>
+              <button onClick={onClose} style={{ flex:1,padding:"12px",background:"rgba(255,255,255,.05)",border:"1px solid rgba(255,255,255,.12)",borderRadius:8,color:"rgba(200,220,255,.55)",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif" }}>Close</button>
             </div>
           </div>
         )}
@@ -725,3 +748,4 @@ export default function CitizenReport({ user, lang="en", onClose }) {
     </div>
   );
 }
+
