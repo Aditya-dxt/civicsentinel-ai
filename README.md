@@ -17,10 +17,10 @@ It bridges the gap between **citizen signals → AI processing → government ac
 ---
 
 # 👤 Author
-
-**Aditya Dixit**
-**Vaibhav Tripathi**
-
+```text
+Aditya Dixit
+Vaibhav Tripathi
+```
 # GitHub
 ```text
 https://github.com/Aditya-dxt
