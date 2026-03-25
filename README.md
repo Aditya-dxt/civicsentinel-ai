@@ -18,8 +18,8 @@ It bridges the gap between **citizen signals → AI processing → government ac
 
 # 👤 Author
 ```text
-**Aditya Dixit**
-**Vaibhav Tripathi**
+Aditya Dixit
+Vaibhav Tripathi
 ```
 # GitHub
 ```text
