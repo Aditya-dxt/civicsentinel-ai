@@ -5,7 +5,7 @@
 **Live URLs**
 - Citizen App: https://civicsentinel-ai-pszx.onrender.com
 - Admin Dashboard: https://civicsentinel-admin.onrender.com
-- Backend API: https://civicsentinel-ai-1.onrender.com
+- Backend API: https://civicsentinel-ai-1-z7io.onrender.com
 
 ---
 
@@ -145,7 +145,7 @@ All 6 languages supported across **every screen**:
 
 **AI Civic Copilot** — Chat interface hitting `/ai-civic-copilot` endpoint with local data fallback
 
-**Live Stream** — WebSocket connection to `wss://civicsentinel-ai-1.onrender.com/ws/events`
+**Live Stream** — WebSocket connection to `wss://civicsentinel-ai-1-z7io.onrender.com/ws/events`
 
 **Analytics** — City gauge grid + full event table
 

@@ -4,9 +4,8 @@ import { LANGS, tl } from "./translations";
 // ═══════════════════════════════════════════════════════════
 // CITIZEN HOME — Report button + My Reports + Language picker
 // No analytics, no dashboards. Just what citizens need.
-// ═══════════════════════════════════════════════════════════
-
-const API = "https://civicsentinel-ai-1.onrender.com";
+// ═════════════════════════════════════════════════════════
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 
 

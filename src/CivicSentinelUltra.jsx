@@ -8,7 +8,7 @@ import {
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIG — single source of truth for backend URL
 // ══════════════════════════════════════════════════════════════════════════════
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 const POLL_MS = 8000; // 8s — Render free tier is slow
 
 // ══════════════════════════════════════════════════════════════════════════════

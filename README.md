@@ -11,8 +11,8 @@ It bridges the gap between **citizen signals → AI processing → government ac
 ```text
 - 🚀 Citizen App: https://civicsentinel-ai-pszx.onrender.com
 - 🛠 Admin Dashboard: https://civicsentinel-admin.onrender.com
-- 🔗 Backend API: https://civicsentinel-ai-1.onrender.com
-- 📘 Swagger Docs: https://civicsentinel-ai-1.onrender.com/docs
+- 🔗 Backend API: https://civicsentinel-ai-1-z7io.onrender.com
+- 📘 Swagger Docs: https://civicsentinel-ai-1-z7io.onrender.com/docs
 ```
 ---
 

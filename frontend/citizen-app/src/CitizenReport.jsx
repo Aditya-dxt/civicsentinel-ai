@@ -10,7 +10,7 @@ import { tl } from "./translations";
 // Step 5 — Preview & submit → ward dispatch
 // ══════════════════════════════════════════════════════════════════════════════
 
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 // ── Issue categories (icon, English + 5 regional labels) ────────────────────
 const CATS = [

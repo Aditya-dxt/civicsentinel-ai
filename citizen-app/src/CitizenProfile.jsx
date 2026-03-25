@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { LANGS, tl } from "./translations";
 
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 const STATUS_COLOR = {
   submitted:   { bg:"rgba(59,130,246,0.15)", border:"rgba(59,130,246,0.5)", text:"#93c5fd", dot:"#3b82f6" },

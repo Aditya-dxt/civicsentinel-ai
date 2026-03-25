@@ -6,7 +6,7 @@ import { useState, useEffect, useCallback } from "react";
 // Large tap targets · emoji-first · minimal text required to use
 // ══════════════════════════════════════════════════════════════════════════════
 
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 // ── Language registry ─────────────────────────────────────────────────────────
 const LANGS = [
