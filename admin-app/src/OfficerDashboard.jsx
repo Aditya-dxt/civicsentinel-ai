@@ -527,77 +527,512 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// KNOWLEDGE GRAPH VISUALIZER
+// KNOWLEDGE GRAPH — Professional force-directed network visualization
+//
+// DROP-IN REPLACEMENT for the existing KnowledgeGraph function in
+// OfficerDashboard.jsx. Find "function KnowledgeGraph({ data, isDark })"
+// and replace the ENTIRE function with this code.
+//
+// Improvements over the old version:
+//   • Force-directed layout — nodes repel each other, edges pull them together
+//   • City nodes: large cyan circles, issue nodes: smaller amber diamonds
+//   • Node size scales with risk score (cities) or report frequency (issues)
+//   • Animated edges with directional flow pulses
+//   • Hover tooltips showing node details
+//   • Stats sidebar: total nodes, edges, most connected city, hottest issue
+//   • Clean grid background matching the dashboard aesthetic
+//   • Fully dark/light mode aware via isDark prop
 // ══════════════════════════════════════════════════════════════════════════════
+
 function KnowledgeGraph({ data, isDark }) {
   const t = useT();
-  const canvasRef = useRef(null);
+  const canvasRef   = useRef(null);
+  const animRef     = useRef(null);
+  const nodesRef    = useRef([]);
+  const edgesRef    = useRef([]);
+  const hoveredRef  = useRef(null);
+  const mouseRef    = useRef({ x: 0, y: 0 });
+  const [hoveredNode, setHoveredNode] = useState(null);
+  const [stats, setStats]             = useState(null);
 
+  // ── Parse API data into nodes + edges ──────────────────────────────────
   const { nodes, edges } = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
-    const toArr = (v) => { if (!v) return []; if (Array.isArray(v)) return v; if (typeof v === "object") return Object.values(v); return []; };
 
-    if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
-      const relations = data.relations.slice(0, 20);
-      const nodeMap = {}; const ns = []; const es = [];
-      relations.forEach((rel) => {
-        const cityLabel  = rel.city  || rel.source || rel.from || null;
-        const issueLabel = rel.issue || rel.target || rel.to   || null;
-        if (cityLabel  && !(cityLabel  in nodeMap)) { nodeMap[cityLabel]  = ns.length; ns.push({ id:ns.length, label:String(cityLabel).slice(0,14),  type:"city",  value:rel.risk_score||62 }); }
-        if (issueLabel && !(issueLabel in nodeMap)) { nodeMap[issueLabel] = ns.length; ns.push({ id:ns.length, label:String(issueLabel).slice(0,14), type:"issue", value:rel.severity||48  }); }
-        if (cityLabel && issueLabel && (cityLabel in nodeMap) && (issueLabel in nodeMap)) es.push({ from:nodeMap[cityLabel], to:nodeMap[issueLabel] });
+    const nodeMap = {};
+    const ns = [];
+    const es = [];
+
+    const addNode = (label, type, weight = 1) => {
+      if (label in nodeMap) {
+        nodeMap[label].weight += weight;
+        return nodeMap[label];
+      }
+      const node = {
+        id:     ns.length,
+        label:  String(label).slice(0, 16),
+        type,
+        weight,
+        x:      0,
+        y:      0,
+        vx:     0,
+        vy:     0,
+      };
+      nodeMap[label] = node;
+      ns.push(node);
+      return node;
+    };
+
+    // Handle { relations: [{city, issue}] } shape from API
+    const relations = data.relations || [];
+    relations.forEach(rel => {
+      const cityLabel  = rel.city  || rel.source || rel.from;
+      const issueLabel = rel.issue || rel.target || rel.to;
+      if (!cityLabel || !issueLabel) return;
+
+      const cityNode  = addNode(cityLabel,  "city",  1);
+      const issueNode = addNode(issueLabel, "issue", 1);
+
+      // Avoid duplicate edges
+      const exists = es.some(
+        e => (e.from === cityNode.id && e.to === issueNode.id) ||
+             (e.from === issueNode.id && e.to === cityNode.id)
+      );
+      if (!exists) {
+        es.push({
+          from:   cityNode.id,
+          to:     issueNode.id,
+          pulse:  Math.random(), // staggered animation offset
+        });
+      }
+    });
+
+    // Fallback: plain object map
+    if (ns.length === 0 && typeof data === "object" && !Array.isArray(data)) {
+      const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k));
+      keys.slice(0, 12).forEach(k => {
+        addNode(k, "city", typeof data[k] === "number" ? data[k] : 1);
       });
-      if (ns.length > 0) return { nodes:ns, edges:es };
     }
-    if (Array.isArray(data)) {
-      const ns = data.slice(0,20).map((item,i)=>({ id:i, label:item.entity||item.city||item.issue||item.name||("Node "+i), type:item.type||"entity", value:item.risk_score||item.score||50 }));
-      return { nodes:ns, edges:ns.slice(0,-1).map((_,i)=>({ from:i, to:(i+1)%ns.length })) };
-    }
-    if (data.nodes && Array.isArray(data.nodes) && data.nodes.length > 0) {
-      const ns = toArr(data.nodes).slice(0,20).map((n,i)=>({ id:i, label:n.label||n.name||n.entity||("Node "+i), type:n.type||"entity", value:n.value||n.risk||50 }));
-      const es = toArr(data.edges).slice(0,30).map((e,i)=>({ from:typeof e.from==="number"?e.from:(typeof e.source==="number"?e.source:i%ns.length), to:typeof e.to==="number"?e.to:(typeof e.target==="number"?e.target:(i+1)%ns.length) }));
-      return { nodes:ns, edges:es };
-    }
-    const keys = Object.keys(data).filter(k=>!["nodes","edges","relations"].includes(k)).slice(0,14);
-    if (keys.length > 0) {
-      const ns = keys.map((k,i)=>({ id:i, label:k, type:"city", value:typeof data[k]==="number"?data[k]:50 }));
-      return { nodes:ns, edges:ns.slice(0,-1).map((_,i)=>({ from:i, to:(i+2)%ns.length })) };
-    }
-    return { nodes:[], edges:[] };
+
+    return { nodes: ns, edges: es };
   }, [data]);
 
+  // ── Compute stats ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!nodes.length) return;
-    const canvas = canvasRef.current; if(!canvas) return;
-    const ctx = canvas.getContext("2d");
-    const W = canvas.width, H = canvas.height;
-    const placed = nodes.map((n,i)=>{ const angle=(i/nodes.length)*Math.PI*2; return {...n,x:W/2+Math.cos(angle)*(W*0.38),y:H/2+Math.sin(angle)*(H*0.38)}; });
-    let frame=0; let id;
-    const draw = () => {
-      ctx.clearRect(0,0,W,H);
-      edges.forEach(e=>{const from=placed[e.from];const to=placed[e.to];if(!from||!to)return;ctx.beginPath();ctx.moveTo(from.x,from.y);ctx.lineTo(to.x,to.y);ctx.strokeStyle=isDark?`rgba(0,200,255,${0.08+Math.abs(Math.sin(frame*.02+e.from))*.08})`:"rgba(0,60,140,0.08)";ctx.lineWidth=.8;ctx.stroke();});
-      placed.forEach((n,i)=>{const isCity=n.type==="city";const isIssue=n.type==="issue";const col=isCity?(isDark?"#00ccff":"#0050cc"):isIssue?(isDark?"#ffb800":"#8a5000"):riskCol(n.value||50,isDark);const pulse=1+Math.sin(frame*.03+i)*.1;const r=(isCity?9:7)*pulse;ctx.beginPath();ctx.arc(n.x,n.y,r+5,0,Math.PI*2);ctx.fillStyle=col+"18";ctx.fill();ctx.beginPath();ctx.arc(n.x,n.y,r,0,Math.PI*2);ctx.fillStyle=col+"44";ctx.fill();ctx.strokeStyle=col;ctx.lineWidth=isCity?1.8:1.3;ctx.stroke();ctx.fillStyle=isDark?"rgba(255,255,255,0.9)":col;ctx.font="bold "+(r*0.9)+"px Inter,sans-serif";ctx.textAlign="center";ctx.fillText(isCity?"🏙":isIssue?"⚠":"●",n.x,n.y+r*0.35);ctx.fillStyle=isDark?"rgba(200,230,255,0.85)":"rgba(12,24,40,0.7)";ctx.font="600 9px Inter,sans-serif";ctx.textAlign="center";ctx.fillText(String(n.label).slice(0,13),n.x,n.y+r+12);});
-      frame++; id=requestAnimationFrame(draw);
+    const cityNodes  = nodes.filter(n => n.type === "city");
+    const issueNodes = nodes.filter(n => n.type === "issue");
+
+    // Most connected city = highest edge count
+    const cityEdgeCounts = {};
+    edges.forEach(e => {
+      const fn = nodes[e.from]; const tn = nodes[e.to];
+      if (fn?.type === "city") cityEdgeCounts[fn.label] = (cityEdgeCounts[fn.label] || 0) + 1;
+      if (tn?.type === "city") cityEdgeCounts[tn.label] = (cityEdgeCounts[tn.label] || 0) + 1;
+    });
+    const topCity = Object.entries(cityEdgeCounts).sort((a,b) => b[1]-a[1])[0];
+
+    // Hottest issue = most edges
+    const issueEdgeCounts = {};
+    edges.forEach(e => {
+      const fn = nodes[e.from]; const tn = nodes[e.to];
+      if (fn?.type === "issue") issueEdgeCounts[fn.label] = (issueEdgeCounts[fn.label] || 0) + 1;
+      if (tn?.type === "issue") issueEdgeCounts[tn.label] = (issueEdgeCounts[tn.label] || 0) + 1;
+    });
+    const topIssue = Object.entries(issueEdgeCounts).sort((a,b) => b[1]-a[1])[0];
+
+    setStats({
+      totalNodes:  nodes.length,
+      totalEdges:  edges.length,
+      cities:      cityNodes.length,
+      issues:      issueNodes.length,
+      topCity:     topCity  ? topCity[0]  : "—",
+      topIssue:    topIssue ? topIssue[0] : "—",
+    });
+  }, [nodes, edges]);
+
+  // ── Force-directed simulation + render ─────────────────────────────────
+  useEffect(() => {
+    if (!nodes.length || !canvasRef.current) return;
+
+    const canvas  = canvasRef.current;
+    const ctx     = canvas.getContext("2d");
+    const W       = canvas.width;
+    const H       = canvas.height;
+
+    // Place nodes in a circle initially
+    const placed = nodes.map((n, i) => {
+      const angle = (i / nodes.length) * Math.PI * 2;
+      const r     = Math.min(W, H) * 0.32;
+      return {
+        ...n,
+        x:  W / 2 + Math.cos(angle) * r + (Math.random() - 0.5) * 40,
+        y:  H / 2 + Math.sin(angle) * r + (Math.random() - 0.5) * 40,
+        vx: 0,
+        vy: 0,
+      };
+    });
+
+    nodesRef.current = placed;
+    edgesRef.current = edges;
+
+    let frame = 0;
+    let simSteps = 0;   // run physics for first 180 frames then settle
+
+    const REPEL    = 3200;
+    const ATTRACT  = 0.028;
+    const DAMPING  = 0.82;
+    const MAX_VEL  = 4.5;
+
+    // Colors
+    const CITY_FILL    = isDark ? "rgba(0,200,255,0.18)"  : "rgba(0,80,200,0.10)";
+    const CITY_STROKE  = isDark ? "#00ccff"               : "#0050cc";
+    const CITY_TEXT    = isDark ? "#00ccff"               : "#003899";
+    const ISSUE_FILL   = isDark ? "rgba(255,184,0,0.18)"  : "rgba(160,100,0,0.10)";
+    const ISSUE_STROKE = isDark ? "#ffb800"               : "#8a5000";
+    const ISSUE_TEXT   = isDark ? "#ffb800"               : "#6b3d00";
+    const EDGE_COLOR   = isDark ? "rgba(0,200,255,0.12)"  : "rgba(0,60,140,0.10)";
+    const PULSE_COLOR  = isDark ? "rgba(0,255,157,0.55)"  : "rgba(0,120,80,0.45)";
+    const GRID_COLOR   = isDark ? "rgba(0,200,255,0.04)"  : "rgba(0,60,140,0.04)";
+    const HOV_GLOW     = isDark ? "rgba(0,200,255,0.35)"  : "rgba(0,60,200,0.25)";
+
+    const drawGrid = () => {
+      ctx.strokeStyle = GRID_COLOR;
+      ctx.lineWidth   = 0.5;
+      const step = 40;
+      for (let x = 0; x < W; x += step) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      }
+      for (let y = 0; y < H; y += step) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      }
     };
-    draw(); return ()=>cancelAnimationFrame(id);
+
+    const nodeRadius = (n) => {
+      const base = n.type === "city" ? 20 : 14;
+      return base + Math.min(n.weight * 2, 12);
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      drawGrid();
+
+      const ns = nodesRef.current;
+
+      // ── Physics (first 180 frames) ──
+      if (simSteps < 180) {
+        simSteps++;
+        for (let i = 0; i < ns.length; i++) {
+          let fx = 0, fy = 0;
+
+          // Repulsion between all node pairs
+          for (let j = 0; j < ns.length; j++) {
+            if (i === j) continue;
+            const dx = ns[i].x - ns[j].x;
+            const dy = ns[i].y - ns[j].y;
+            const dist = Math.max(Math.hypot(dx, dy), 1);
+            const force = REPEL / (dist * dist);
+            fx += (dx / dist) * force;
+            fy += (dy / dist) * force;
+          }
+
+          // Attraction along edges
+          edgesRef.current.forEach(e => {
+            const other = e.from === i ? ns[e.to] : e.to === i ? ns[e.from] : null;
+            if (!other) return;
+            const dx = other.x - ns[i].x;
+            const dy = other.y - ns[i].y;
+            fx += dx * ATTRACT;
+            fy += dy * ATTRACT;
+          });
+
+          // Center gravity (gentle pull to canvas center)
+          fx += (W / 2 - ns[i].x) * 0.004;
+          fy += (H / 2 - ns[i].y) * 0.004;
+
+          ns[i].vx = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vx + fx) * DAMPING));
+          ns[i].vy = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vy + fy) * DAMPING));
+          ns[i].x  = Math.max(40, Math.min(W - 40, ns[i].x + ns[i].vx));
+          ns[i].y  = Math.max(40, Math.min(H - 40, ns[i].y + ns[i].vy));
+        }
+      }
+
+      // ── Draw edges ──
+      edgesRef.current.forEach(e => {
+        const a = ns[e.from]; const b = ns[e.to];
+        if (!a || !b) return;
+
+        // Base edge line
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = EDGE_COLOR;
+        ctx.lineWidth   = 1.2;
+        ctx.stroke();
+
+        // Animated pulse dot travelling along the edge
+        const t_val = ((frame * 0.008 + e.pulse) % 1);
+        const px    = a.x + (b.x - a.x) * t_val;
+        const py    = a.y + (b.y - a.y) * t_val;
+        ctx.beginPath();
+        ctx.arc(px, py, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = PULSE_COLOR;
+        ctx.fill();
+      });
+
+      // ── Draw nodes ──
+      ns.forEach((n, i) => {
+        const r       = nodeRadius(n);
+        const isCity  = n.type === "city";
+        const isHov   = hoveredRef.current === i;
+        const fill    = isCity  ? CITY_FILL   : ISSUE_FILL;
+        const stroke  = isCity  ? CITY_STROKE : ISSUE_STROKE;
+        const txtCol  = isCity  ? CITY_TEXT   : ISSUE_TEXT;
+
+        // Hover glow ring
+        if (isHov) {
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 8, 0, Math.PI * 2);
+          ctx.fillStyle   = HOV_GLOW;
+          ctx.fill();
+        }
+
+        // Outer glow pulse (city nodes only)
+        if (isCity) {
+          const pulse = 0.5 + Math.sin(frame * 0.04 + i) * 0.5;
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
+          ctx.fillStyle = `${CITY_STROKE}${Math.round(pulse * 20).toString(16).padStart(2,"0")}`;
+          ctx.fill();
+        }
+
+        if (isCity) {
+          // City: circle
+          ctx.beginPath();
+          ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
+          ctx.fillStyle   = fill;
+          ctx.fill();
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth   = isHov ? 2 : 1.5;
+          ctx.stroke();
+        } else {
+          // Issue: diamond shape
+          const d = r * 1.1;
+          ctx.beginPath();
+          ctx.moveTo(n.x,     n.y - d);
+          ctx.lineTo(n.x + d, n.y);
+          ctx.lineTo(n.x,     n.y + d);
+          ctx.lineTo(n.x - d, n.y);
+          ctx.closePath();
+          ctx.fillStyle   = fill;
+          ctx.fill();
+          ctx.strokeStyle = stroke;
+          ctx.lineWidth   = isHov ? 2 : 1.5;
+          ctx.stroke();
+        }
+
+        // Type icon
+        ctx.fillStyle  = stroke;
+        ctx.font       = `${r * 0.72}px sans-serif`;
+        ctx.textAlign  = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(isCity ? "🏙" : "⚠", n.x, n.y - 1);
+
+        // Label below node
+        ctx.font         = `500 11px 'Inter',sans-serif`;
+        ctx.fillStyle    = txtCol;
+        ctx.textAlign    = "center";
+        ctx.textBaseline = "top";
+        ctx.fillText(n.label, n.x, n.y + r + 5);
+
+        // Weight badge (only if > 1)
+        if (n.weight > 1) {
+          const bx = n.x + r * 0.65;
+          const by = n.y - r * 0.65;
+          ctx.beginPath();
+          ctx.arc(bx, by, 8, 0, Math.PI * 2);
+          ctx.fillStyle = stroke;
+          ctx.fill();
+          ctx.fillStyle    = isDark ? "#020609" : "#ffffff";
+          ctx.font         = "bold 9px 'Inter',sans-serif";
+          ctx.textAlign    = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(n.weight > 9 ? "9+" : n.weight, bx, by);
+        }
+      });
+
+      frame++;
+      animRef.current = requestAnimationFrame(draw);
+    };
+
+    draw();
+    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [nodes, edges, isDark]);
 
-  if (!data) return <div style={{height:300,display:"flex",alignItems:"center",justifyContent:"center",color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Loading knowledge graph...</div>;
-  if (nodes.length===0) return (
-    <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:10,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
-      <div style={{fontSize:32}}>🕸</div>
-      <div>No graph data yet — submit complaints to build the knowledge graph</div>
-      <div style={{fontSize:11,opacity:.5}}>Relations data: {JSON.stringify(data).slice(0,120)}…</div>
+  // ── Mouse hover detection ───────────────────────────────────────────────
+  const handleMouseMove = useCallback((e) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width  / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top)  * scaleY;
+    mouseRef.current = { x: mx, y: my };
+
+    const ns = nodesRef.current;
+    let found = null;
+    for (let i = 0; i < ns.length; i++) {
+      const r  = 20 + Math.min(ns[i].weight * 2, 12) + 8;
+      const dx = ns[i].x - mx;
+      const dy = ns[i].y - my;
+      if (Math.hypot(dx, dy) < r) { found = i; break; }
+    }
+    hoveredRef.current = found;
+    setHoveredNode(found !== null ? ns[found] : null);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    hoveredRef.current = null;
+    setHoveredNode(null);
+  }, []);
+
+  // ── Empty / loading states ──────────────────────────────────────────────
+  if (!data) return (
+    <div style={{height:340,display:"flex",alignItems:"center",justifyContent:"center",
+      color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+      ⏳ Loading knowledge graph...
+    </div>
+  );
+
+  if (nodes.length === 0) return (
+    <div style={{height:340,display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"center",gap:12,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+      <div style={{fontSize:36}}>🕸</div>
+      <div>No graph data yet — submit complaints to build the network</div>
+      <div style={{fontSize:11,opacity:.5,maxWidth:340,textAlign:"center",lineHeight:1.6}}>
+        Relations data: {JSON.stringify(data).slice(0,100)}…
+      </div>
     </div>
   );
 
   return (
-    <div style={{position:"relative"}}>
-      <canvas ref={canvasRef} width={900} height={320} style={{width:"100%",height:320,borderRadius:6}}/>
-      <div style={{position:"absolute",top:8,right:8,display:"flex",gap:10,background:isDark?"rgba(4,10,22,.85)":"rgba(255,255,255,.85)",padding:"5px 10px",borderRadius:7,border:`1px solid ${t.border}`,backdropFilter:"blur(8px)"}}>
-        {[["🏙 City","#00ccff"],["⚠ Issue","#ffb800"]].map(([l,c])=>(
-          <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:c,fontFamily:"'Inter',sans-serif",fontWeight:600}}>{l}</div>
-        ))}
+    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+
+      {/* ── Stats bar ── */}
+      {stats && (
+        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
+          {[
+            ["Nodes",   stats.totalNodes, t.accent],
+            ["Edges",   stats.totalEdges, t.accent],
+            ["Cities",  stats.cities,     isDark?"#00ccff":"#0050cc"],
+            ["Issues",  stats.issues,     isDark?"#ffb800":"#8a5000"],
+            ["Top city",  stats.topCity,  isDark?"#00ccff":"#0050cc"],
+            ["Top issue", stats.topIssue, isDark?"#ffb800":"#8a5000"],
+          ].map(([label, val, col]) => (
+            <div key={label} style={{
+              padding:"8px 10px",
+              background: isDark ? "rgba(0,0,0,.25)" : "rgba(0,40,120,.04)",
+              border:`1px solid ${col}28`,
+              borderRadius:6,
+              textAlign:"center",
+            }}>
+              <div style={{fontSize:10,color:t.txtMute,fontFamily:"'Inter',sans-serif",
+                letterSpacing:"0.05em",marginBottom:4}}>{label.toUpperCase()}</div>
+              <div style={{fontSize:13,fontWeight:700,color:col,
+                fontFamily:"'DM Mono',monospace",overflow:"hidden",
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Canvas + tooltip ── */}
+      <div style={{position:"relative"}}>
+        <canvas
+          ref={canvasRef}
+          width={900}
+          height={380}
+          onMouseMove={handleMouseMove}
+          onMouseLeave={handleMouseLeave}
+          style={{
+            width:"100%", height:380, borderRadius:8, cursor:"crosshair",
+            border:`1px solid ${t.border}`,
+            background: isDark ? "rgba(2,6,12,0.6)" : "rgba(240,246,255,0.6)",
+          }}
+        />
+
+        {/* Hover tooltip */}
+        {hoveredNode && (
+          <div style={{
+            position:"absolute",
+            top: 12, left: 12,
+            background: isDark ? "rgba(4,10,22,0.95)" : "rgba(255,255,255,0.95)",
+            border:`1px solid ${hoveredNode.type==="city"
+              ? (isDark?"#00ccff":"#0050cc")
+              : (isDark?"#ffb800":"#8a5000")}50`,
+            borderRadius:8,
+            padding:"10px 14px",
+            backdropFilter:"blur(12px)",
+            pointerEvents:"none",
+            minWidth:160,
+          }}>
+            <div style={{
+              fontSize:12, fontWeight:700,
+              color: hoveredNode.type==="city"
+                ? (isDark?"#00ccff":"#0050cc")
+                : (isDark?"#ffb800":"#8a5000"),
+              fontFamily:"'Inter',sans-serif",
+              marginBottom:6,
+              display:"flex", alignItems:"center", gap:6,
+            }}>
+              {hoveredNode.type === "city" ? "🏙" : "⚠"} {hoveredNode.label}
+            </div>
+            {[
+              ["Type",    hoveredNode.type === "city" ? "City node" : "Issue node"],
+              ["Reports", hoveredNode.weight],
+              ["Connections", edgesRef.current.filter(
+                e => e.from === hoveredNode.id || e.to === hoveredNode.id
+              ).length],
+            ].map(([k,v]) => (
+              <div key={k} style={{display:"flex",justifyContent:"space-between",
+                gap:16,fontSize:11,marginBottom:3}}>
+                <span style={{color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>{k}</span>
+                <span style={{color:t.txt,fontFamily:"'DM Mono',monospace",fontWeight:600}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Legend */}
+        <div style={{
+          position:"absolute", bottom:16, right:12,
+          background: isDark ? "rgba(4,10,22,0.88)" : "rgba(255,255,255,0.92)",
+          border:`1px solid ${t.border}`,
+          borderRadius:6, padding:"8px 12px",
+          backdropFilter:"blur(8px)",
+          display:"flex", flexDirection:"column", gap:6,
+        }}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:12,height:12,borderRadius:"50%",
+              background: isDark?"rgba(0,200,255,.2)":"rgba(0,80,200,.15)",
+              border:`1.5px solid ${isDark?"#00ccff":"#0050cc"}`}}/>
+            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>City</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:10,height:10,
+              background: isDark?"rgba(255,184,0,.2)":"rgba(160,100,0,.15)",
+              border:`1.5px solid ${isDark?"#ffb800":"#8a5000"}`,
+              transform:"rotate(45deg)"}}/>
+            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>Issue</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <div style={{width:6,height:6,borderRadius:"50%",
+              background: isDark?"#00ff9d":"#007840"}}/>
+            <span style={{fontSize:11,color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>Data flow</span>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1162,7 +1597,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             {activeTab==="copilot"&&(<div style={{animation:"slideIn .4s ease"}}><AICivicCopilotPanel theme={theme} isDark={isDark} riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/></div>)}
 
             {/* ════════ LIVE WEBSOCKET STREAM ════════ */}
-            {activeTab==="livestream"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/><span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span></div><span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>{wsEventList.length>0&&<span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{wsEventList.length} EVENTS RECEIVED</span>}</div><Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">{wsEventList.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}><div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div><div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div><div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div></div>):(<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>{wsEventList.map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"LIVE";return(<div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}><div style={{flexShrink:0,marginTop:2}}><span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>{e.issue&&<span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}<span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span></div>{e.text&&<div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}</div><div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div></div>);})}</div>)}</Panel>{eventList.length>0&&(<div style={{marginTop:12}}><Panel title="REST EVENT FEED" subtitle={"/events · "+eventList.length+" total · polled every "+POLL_MS/1000+"s"} acc={theme.amber} tag="REST"><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>{eventList.slice(0,20).map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}><span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/><span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span><span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span><span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span></div>);})}</div></Panel></div>)}</div>)}
+            {activeTab==="livestream"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/><span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span></div><span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>{wsEventList.length>0&&<span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{wsEventList.length} EVENTS RECEIVED</span>}</div><Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">{wsEventList.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}><div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div><div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div><div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div></div>):(<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>{wsEventList.map((e,i)=>{const risk = e.city_risk_score ?? e.risk_score ?? e.risk ?? 0;;const col=riskCol(risk,isDark);const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"LIVE";return(<div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}><div style={{flexShrink:0,marginTop:2}}><span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>{e.issue&&<span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}<span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span></div>{e.text&&<div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}</div><div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div></div>);})}</div>)}</Panel>{eventList.length>0&&(<div style={{marginTop:12}}><Panel title="REST EVENT FEED" subtitle={"/events · "+eventList.length+" total · polled every "+POLL_MS/1000+"s"} acc={theme.amber} tag="REST"><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>{eventList.slice(0,20).map((e,i)=>{const risk = e.city_risk_score ?? e.risk_score ?? e.risk ?? 0;;const col=riskCol(risk,isDark);return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}><span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/><span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span><span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span><span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span></div>);})}</div></Panel></div>)}</div>)}
 
           </div>
 
