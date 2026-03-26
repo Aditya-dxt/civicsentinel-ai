@@ -7,7 +7,7 @@ import { LANGS, tl } from "./translations";
 //      /my-reports?user_id=<firebase_uid> — user-scoped only.
 // ═══════════════════════════════════════════════════════════
 
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 const STATUS_COLOR = {
   submitted:   "#3b82f6",

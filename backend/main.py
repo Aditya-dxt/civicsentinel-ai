@@ -125,17 +125,11 @@ def ai_insight(query: str):
 # -----------------------------
 # Risk Summary
 # -----------------------------
+from app.intelligence.risk import generate_risk_summary
+
 @app.get("/risk-summary")
 def risk_summary():
-    summary = {}
-    for event in event_store:
-        city = event["location"]
-        risk = event["risk_score"]
-        if city not in summary:
-            summary[city] = risk
-        else:
-            summary[city] = max(summary[city], risk)
-    return summary
+    return generate_risk_summary(event_store)
 
 
 # -----------------------------
@@ -245,7 +239,7 @@ async def report_complaint(data: Complaint):
         "status":    data.status,            # FIX: for progress bar
     }
 
-    processed = process_event(event)
+    processed = process_event(event, event_store)
 
     event_store.append(processed)
 

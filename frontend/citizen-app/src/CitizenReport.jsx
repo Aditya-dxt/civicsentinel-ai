@@ -8,7 +8,7 @@ import { tl } from "./translations";
 //      a client-side fallback ID that doesn't match stored events.
 // ══════════════════════════════════════════════════════════════════════════════
 
-const API = "https://civicsentinel-ai-1.onrender.com";
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 // ── Issue categories ─────────────────────────────────────────────────────────
 const CATS = [

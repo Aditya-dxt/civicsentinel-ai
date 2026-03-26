@@ -23,12 +23,12 @@ https://github.com/Aditya-dxt
 
 ## Backend API
 ```text
-https://civicsentinel-ai-1.onrender.com
+https://civicsentinel-ai-1-z7io.onrender.com
 ```
 
 ## Swagger API Documentation
 ```text
-https://civicsentinel-ai-1.onrender.com/docs
+https://civicsentinel-ai-1-z7io.onrender.com/docs
 ```
 
 # 🧠 Complete System Architecture
