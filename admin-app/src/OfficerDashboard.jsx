@@ -766,7 +766,7 @@ function AIInsightPanel({ insight, loading, error }) {
             onFocus={e=>e.target.style.borderColor=t.inputFocus}
             onBlur={e=>e.target.style.borderColor=t.inputBorder}/>
         </div>
-        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading?.5:1}}>ASK</button>
+        <button onClick={()=>fetchInsight(query)} disabled={localLoading} style={{background:`linear-gradient(135deg,${t.accent}22,${t.green}16)`,border:`1px solid ${t.accent}40`,borderRadius:6,color:t.accent,padding:"10px 15px",cursor:"pointer",fontSize:13,fontFamily:"'Inter',sans-serif",opacity:localLoading ? 0.5 : 1}}>ASK</button>
       </div>
     </div>
   );
@@ -813,8 +813,8 @@ function CyberTip({ active, payload, label }) {
 function Toggle({ isDark, onToggle }) {
   return (
     <button onClick={onToggle} style={{position:"relative",width:64,height:30,borderRadius:15,cursor:"pointer",padding:0,overflow:"hidden",background:isDark?"linear-gradient(135deg,#020609,#001828)":"linear-gradient(135deg,#dce8ff,#eff6ff)",border:`1.5px solid ${isDark?"rgba(0,204,255,0.42)":"rgba(0,60,140,0.26)"}`,boxShadow:isDark?"0 0 12px rgba(0,204,255,0.16)":"0 2px 8px rgba(0,60,140,0.09)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}>
-      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.88:.28,transition:"opacity .3s"}}>🌙</span>
-      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark?.28:.92,transition:"opacity .3s"}}>☀️</span>
+      <span style={{position:"absolute",left:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark ? 0.88 : 0.28,transition:"opacity .3s"}}>🌙</span>
+      <span style={{position:"absolute",right:6,top:"50%",transform:"translateY(-50%)",fontSize:14,opacity:isDark ? 0.28 : 0.92,transition:"opacity .3s"}}>☀️</span>
       <div style={{position:"absolute",top:3,left:isDark?3:37,width:22,height:22,borderRadius:"50%",background:isDark?"linear-gradient(135deg,#00ccff,#0055bb)":"linear-gradient(135deg,#fbbf24,#f59e0b)",boxShadow:isDark?"0 0 10px rgba(0,204,255,0.65)":"0 2px 6px rgba(251,191,36,0.55)",transition:"all .4s cubic-bezier(0.34,1.56,0.64,1)"}}/>
     </button>
   );
@@ -844,17 +844,12 @@ function Skeleton({ h=16, w="100%", mb=8 }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// MAIN DASHBOARD
-// ══════════════════════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════════════════════
 // AI CIVIC COPILOT PANEL — /ai-civic-copilot endpoint (chatbot-style)
 // ══════════════════════════════════════════════════════════════════════════════
-function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=[], predictions=[] }) {
-
-  // Answer queries locally from live data when backend AI returns nothing
+function AICivicCopilotPanel({ theme, isDark, riskSummary, events, alerts, predictions }) {
   const localAnswer = (query) => {
     const q = query.toLowerCase();
-    const riskEntries = Object.entries(riskSummary).sort((a,b)=>b[1]-a[1]);
+    const riskEntries = Object.entries(riskSummary || {}).sort((a,b)=>b[1]-a[1]);
     const high = riskEntries.filter(([,s])=>s>=70);
 
     if (q.includes("high risk") || q.includes("risk cit")) {
@@ -887,6 +882,7 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
     }
     return null; // no local answer available
   };
+  
   const [messages, setMessages] = useState([
     { role:"system", text:"AI Civic Copilot ready. Ask me anything about civic issues, risk levels, or specific cities.", ts: new Date().toLocaleTimeString() }
   ]);
@@ -915,7 +911,6 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
     const extractText = (data) => {
       if (!data) return null;
       if (typeof data === "string") return data;
-      // Detect empty/no_data responses
       if (data.status === "no_data" || data.status === "empty") return null;
       return data.response || data.answer || data.ai_analysis || data.insight
           || data.message || data.result || null;
@@ -923,14 +918,12 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
 
     let reply = null;
 
-    // Try /ai-civic-copilot first
     try {
       const res  = await fetch(`${API}/ai-civic-copilot?query=${encodeURIComponent(query)}`);
       const data = await res.json();
       reply = extractText(data);
     } catch(_) { /* will fallback */ }
 
-    // Fallback to /ai-insight if copilot failed or returned no_data
     if (!reply) {
       try {
         const res  = await fetch(`${API}/ai-insight?query=${encodeURIComponent(query)}`);
@@ -942,7 +935,6 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
       }
     }
 
-    // Final fallback — answer from local live data
     if (!reply) {
       const local = localAnswer(query);
       if (local) {
@@ -1005,7 +997,7 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
           <div style={{display:"flex",flexDirection:"column",gap:8}}>
             {SUGGESTIONS.map((s,i)=>(
               <button key={i} onClick={()=>!loading&&send(s)}
-                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?.55:1}}
+                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading ? 0.55 : 1}}
                 onMouseEnter={e=>!loading&&(e.currentTarget.style.background=`${theme.amber}14`)}
                 onMouseLeave={e=>(e.currentTarget.style.background=`${theme.amber}08`)}>
                 💬 {s}
@@ -1024,7 +1016,6 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=
     </div>
   );
 }
-
 
 // ══════════════════════════════════════════════════════════════════════════════
 // COMPLAINT MANAGER — Analytics tab
@@ -1222,6 +1213,9 @@ function ComplaintManager({ events, loading, theme, isDark }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN DASHBOARD EXPORT
+// ══════════════════════════════════════════════════════════════════════════════
 export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [isDark, setIsDark] = useState(true);
   const theme = isDark ? DARK : LIGHT;
@@ -1288,8 +1282,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
     { id:"analytics",    icon:"📊",  label:"Analytics",       sub:"Risk · events · trends" },
     { id:"graph",        icon:"🕸",  label:"Knowledge Graph", sub:"Entity connections" },
   ];
-
-
 
   const userInitial = user && user.provider === "google" ? "G"
     : user && user.name ? user.name[0].toUpperCase()
@@ -1658,7 +1650,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
               </Panel>
 
-              {/* Predictions + event mini */}
               <div style={{display:"flex",flexDirection:"column",gap:12}}>
                 <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} forecasts`} acc={theme.amber}>
                   <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:200,overflowY:"auto"}}>
