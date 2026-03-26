@@ -8,13 +8,8 @@ import {
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIG — single source of truth for backend URL
 // ══════════════════════════════════════════════════════════════════════════════
-<<<<<<< HEAD
 const API = "https://civicsentinel-ai-1.onrender.com";
 const POLL_MS = 8000; // 8s — Render free tier is slow
-=======
-const API = "https://civicsentinel-ai-1-z7io.onrender.com";
-const POLL_MS = 8000;
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
 
 // ══════════════════════════════════════════════════════════════════════════════
 // THEME
@@ -151,17 +146,12 @@ function useDashboard() {
 
     const connect = () => {
       try {
-<<<<<<< HEAD
         ws = new WebSocket(`wss://civicsentinel-ai-1.onrender.com/ws/events`);
 
         ws.onopen = () => {
           setState(prev => ({ ...prev, wsConnected: true }));
         };
 
-=======
-        ws = new WebSocket(`wss://civicsentinel-ai-1-z7io.onrender.com/ws/events`);
-        ws.onopen  = () => setState(prev => ({ ...prev, wsConnected: true }));
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
         ws.onmessage = (msg) => {
           try {
             const data = JSON.parse(msg.data);
@@ -536,35 +526,12 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// KNOWLEDGE GRAPH — Professional force-directed network visualization
-//
-// DROP-IN REPLACEMENT for the existing KnowledgeGraph function in
-// OfficerDashboard.jsx. Find "function KnowledgeGraph({ data, isDark })"
-// and replace the ENTIRE function with this code.
-//
-// Improvements over the old version:
-//   • Force-directed layout — nodes repel each other, edges pull them together
-//   • City nodes: large cyan circles, issue nodes: smaller amber diamonds
-//   • Node size scales with risk score (cities) or report frequency (issues)
-//   • Animated edges with directional flow pulses
-//   • Hover tooltips showing node details
-//   • Stats sidebar: total nodes, edges, most connected city, hottest issue
-//   • Clean grid background matching the dashboard aesthetic
-//   • Fully dark/light mode aware via isDark prop
+// KNOWLEDGE GRAPH VISUALIZER
 // ══════════════════════════════════════════════════════════════════════════════
-
 function KnowledgeGraph({ data, isDark }) {
   const t = useT();
-  const canvasRef   = useRef(null);
-  const animRef     = useRef(null);
-  const nodesRef    = useRef([]);
-  const edgesRef    = useRef([]);
-  const hoveredRef  = useRef(null);
-  const mouseRef    = useRef({ x: 0, y: 0 });
-  const [hoveredNode, setHoveredNode] = useState(null);
-  const [stats, setStats]             = useState(null);
+  const canvasRef = useRef(null);
 
-<<<<<<< HEAD
   // Build nodes/edges — handles {nodes:N, edges:N, relations:[{city,issue}]} shape from real API
   const { nodes, edges } = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
@@ -633,75 +600,10 @@ function KnowledgeGraph({ data, isDark }) {
     }
 
     return { nodes: [], edges: [] };
-=======
-  // ── Parse API data into nodes + edges ──────────────────────────────────
-  const { nodes, edges } = useMemo(() => {
-    if (!data) return { nodes: [], edges: [] };
-
-    const nodeMap = {};
-    const ns = [];
-    const es = [];
-
-    const addNode = (label, type, weight = 1) => {
-      if (label in nodeMap) {
-        nodeMap[label].weight += weight;
-        return nodeMap[label];
-      }
-      const node = {
-        id:     ns.length,
-        label:  String(label).slice(0, 16),
-        type,
-        weight,
-        x:      0,
-        y:      0,
-        vx:     0,
-        vy:     0,
-      };
-      nodeMap[label] = node;
-      ns.push(node);
-      return node;
-    };
-
-    // Handle { relations: [{city, issue}] } shape from API
-    const relations = data.relations || [];
-    relations.forEach(rel => {
-      const cityLabel  = rel.city  || rel.source || rel.from;
-      const issueLabel = rel.issue || rel.target || rel.to;
-      if (!cityLabel || !issueLabel) return;
-
-      const cityNode  = addNode(cityLabel,  "city",  1);
-      const issueNode = addNode(issueLabel, "issue", 1);
-
-      // Avoid duplicate edges
-      const exists = es.some(
-        e => (e.from === cityNode.id && e.to === issueNode.id) ||
-             (e.from === issueNode.id && e.to === cityNode.id)
-      );
-      if (!exists) {
-        es.push({
-          from:   cityNode.id,
-          to:     issueNode.id,
-          pulse:  Math.random(), // staggered animation offset
-        });
-      }
-    });
-
-    // Fallback: plain object map
-    if (ns.length === 0 && typeof data === "object" && !Array.isArray(data)) {
-      const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k));
-      keys.slice(0, 12).forEach(k => {
-        addNode(k, "city", typeof data[k] === "number" ? data[k] : 1);
-      });
-    }
-
-    return { nodes: ns, edges: es };
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
   }, [data]);
 
-  // ── Compute stats ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!nodes.length) return;
-<<<<<<< HEAD
     const canvas = canvasRef.current; if(!canvas) return;
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
@@ -760,306 +662,10 @@ function KnowledgeGraph({ data, isDark }) {
       <div style={{fontSize:32}}>🕸</div>
       <div>No graph data yet — submit complaints to build the knowledge graph</div>
       <div style={{fontSize:11,opacity:.5}}>Relations data: {JSON.stringify(data).slice(0,120)}…</div>
-=======
-    const cityNodes  = nodes.filter(n => n.type === "city");
-    const issueNodes = nodes.filter(n => n.type === "issue");
-
-    // Most connected city = highest edge count
-    const cityEdgeCounts = {};
-    edges.forEach(e => {
-      const fn = nodes[e.from]; const tn = nodes[e.to];
-      if (fn?.type === "city") cityEdgeCounts[fn.label] = (cityEdgeCounts[fn.label] || 0) + 1;
-      if (tn?.type === "city") cityEdgeCounts[tn.label] = (cityEdgeCounts[tn.label] || 0) + 1;
-    });
-    const topCity = Object.entries(cityEdgeCounts).sort((a,b) => b[1]-a[1])[0];
-
-    // Hottest issue = most edges
-    const issueEdgeCounts = {};
-    edges.forEach(e => {
-      const fn = nodes[e.from]; const tn = nodes[e.to];
-      if (fn?.type === "issue") issueEdgeCounts[fn.label] = (issueEdgeCounts[fn.label] || 0) + 1;
-      if (tn?.type === "issue") issueEdgeCounts[tn.label] = (issueEdgeCounts[tn.label] || 0) + 1;
-    });
-    const topIssue = Object.entries(issueEdgeCounts).sort((a,b) => b[1]-a[1])[0];
-
-    setStats({
-      totalNodes:  nodes.length,
-      totalEdges:  edges.length,
-      cities:      cityNodes.length,
-      issues:      issueNodes.length,
-      topCity:     topCity  ? topCity[0]  : "—",
-      topIssue:    topIssue ? topIssue[0] : "—",
-    });
-  }, [nodes, edges]);
-
-  // ── Force-directed simulation + render ─────────────────────────────────
-  useEffect(() => {
-    if (!nodes.length || !canvasRef.current) return;
-
-    const canvas  = canvasRef.current;
-    const ctx     = canvas.getContext("2d");
-    const W       = canvas.width;
-    const H       = canvas.height;
-
-    // Place nodes in a circle initially
-    const placed = nodes.map((n, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      const r     = Math.min(W, H) * 0.32;
-      return {
-        ...n,
-        x:  W / 2 + Math.cos(angle) * r + (Math.random() - 0.5) * 40,
-        y:  H / 2 + Math.sin(angle) * r + (Math.random() - 0.5) * 40,
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    nodesRef.current = placed;
-    edgesRef.current = edges;
-
-    let frame = 0;
-    let simSteps = 0;   // run physics for first 180 frames then settle
-
-    const REPEL    = 3200;
-    const ATTRACT  = 0.028;
-    const DAMPING  = 0.82;
-    const MAX_VEL  = 4.5;
-
-    // Colors
-    const CITY_FILL    = isDark ? "rgba(0,200,255,0.18)"  : "rgba(0,80,200,0.10)";
-    const CITY_STROKE  = isDark ? "#00ccff"               : "#0050cc";
-    const CITY_TEXT    = isDark ? "#00ccff"               : "#003899";
-    const ISSUE_FILL   = isDark ? "rgba(255,184,0,0.18)"  : "rgba(160,100,0,0.10)";
-    const ISSUE_STROKE = isDark ? "#ffb800"               : "#8a5000";
-    const ISSUE_TEXT   = isDark ? "#ffb800"               : "#6b3d00";
-    const EDGE_COLOR   = isDark ? "rgba(0,200,255,0.12)"  : "rgba(0,60,140,0.10)";
-    const PULSE_COLOR  = isDark ? "rgba(0,255,157,0.55)"  : "rgba(0,120,80,0.45)";
-    const GRID_COLOR   = isDark ? "rgba(0,200,255,0.04)"  : "rgba(0,60,140,0.04)";
-    const HOV_GLOW     = isDark ? "rgba(0,200,255,0.35)"  : "rgba(0,60,200,0.25)";
-
-    const drawGrid = () => {
-      ctx.strokeStyle = GRID_COLOR;
-      ctx.lineWidth   = 0.5;
-      const step = 40;
-      for (let x = 0; x < W; x += step) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-      }
-      for (let y = 0; y < H; y += step) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-      }
-    };
-
-    const nodeRadius = (n) => {
-      const base = n.type === "city" ? 20 : 14;
-      return base + Math.min(n.weight * 2, 12);
-    };
-
-    const draw = () => {
-      ctx.clearRect(0, 0, W, H);
-      drawGrid();
-
-      const ns = nodesRef.current;
-
-      // ── Physics (first 180 frames) ──
-      if (simSteps < 180) {
-        simSteps++;
-        for (let i = 0; i < ns.length; i++) {
-          let fx = 0, fy = 0;
-
-          // Repulsion between all node pairs
-          for (let j = 0; j < ns.length; j++) {
-            if (i === j) continue;
-            const dx = ns[i].x - ns[j].x;
-            const dy = ns[i].y - ns[j].y;
-            const dist = Math.max(Math.hypot(dx, dy), 1);
-            const force = REPEL / (dist * dist);
-            fx += (dx / dist) * force;
-            fy += (dy / dist) * force;
-          }
-
-          // Attraction along edges
-          edgesRef.current.forEach(e => {
-            const other = e.from === i ? ns[e.to] : e.to === i ? ns[e.from] : null;
-            if (!other) return;
-            const dx = other.x - ns[i].x;
-            const dy = other.y - ns[i].y;
-            fx += dx * ATTRACT;
-            fy += dy * ATTRACT;
-          });
-
-          // Center gravity (gentle pull to canvas center)
-          fx += (W / 2 - ns[i].x) * 0.004;
-          fy += (H / 2 - ns[i].y) * 0.004;
-
-          ns[i].vx = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vx + fx) * DAMPING));
-          ns[i].vy = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vy + fy) * DAMPING));
-          ns[i].x  = Math.max(40, Math.min(W - 40, ns[i].x + ns[i].vx));
-          ns[i].y  = Math.max(40, Math.min(H - 40, ns[i].y + ns[i].vy));
-        }
-      }
-
-      // ── Draw edges ──
-      edgesRef.current.forEach(e => {
-        const a = ns[e.from]; const b = ns[e.to];
-        if (!a || !b) return;
-
-        // Base edge line
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.strokeStyle = EDGE_COLOR;
-        ctx.lineWidth   = 1.2;
-        ctx.stroke();
-
-        // Animated pulse dot travelling along the edge
-        const t_val = ((frame * 0.008 + e.pulse) % 1);
-        const px    = a.x + (b.x - a.x) * t_val;
-        const py    = a.y + (b.y - a.y) * t_val;
-        ctx.beginPath();
-        ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = PULSE_COLOR;
-        ctx.fill();
-      });
-
-      // ── Draw nodes ──
-      ns.forEach((n, i) => {
-        const r       = nodeRadius(n);
-        const isCity  = n.type === "city";
-        const isHov   = hoveredRef.current === i;
-        const fill    = isCity  ? CITY_FILL   : ISSUE_FILL;
-        const stroke  = isCity  ? CITY_STROKE : ISSUE_STROKE;
-        const txtCol  = isCity  ? CITY_TEXT   : ISSUE_TEXT;
-
-        // Hover glow ring
-        if (isHov) {
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 8, 0, Math.PI * 2);
-          ctx.fillStyle   = HOV_GLOW;
-          ctx.fill();
-        }
-
-        // Outer glow pulse (city nodes only)
-        if (isCity) {
-          const pulse = 0.5 + Math.sin(frame * 0.04 + i) * 0.5;
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
-          ctx.fillStyle = `${CITY_STROKE}${Math.round(pulse * 20).toString(16).padStart(2,"0")}`;
-          ctx.fill();
-        }
-
-        if (isCity) {
-          // City: circle
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
-          ctx.fillStyle   = fill;
-          ctx.fill();
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth   = isHov ? 2 : 1.5;
-          ctx.stroke();
-        } else {
-          // Issue: diamond shape
-          const d = r * 1.1;
-          ctx.beginPath();
-          ctx.moveTo(n.x,     n.y - d);
-          ctx.lineTo(n.x + d, n.y);
-          ctx.lineTo(n.x,     n.y + d);
-          ctx.lineTo(n.x - d, n.y);
-          ctx.closePath();
-          ctx.fillStyle   = fill;
-          ctx.fill();
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth   = isHov ? 2 : 1.5;
-          ctx.stroke();
-        }
-
-        // Type icon
-        ctx.fillStyle  = stroke;
-        ctx.font       = `${r * 0.72}px sans-serif`;
-        ctx.textAlign  = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(isCity ? "🏙" : "⚠", n.x, n.y - 1);
-
-        // Label below node
-        ctx.font         = `500 11px 'Inter',sans-serif`;
-        ctx.fillStyle    = txtCol;
-        ctx.textAlign    = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(n.label, n.x, n.y + r + 5);
-
-        // Weight badge (only if > 1)
-        if (n.weight > 1) {
-          const bx = n.x + r * 0.65;
-          const by = n.y - r * 0.65;
-          ctx.beginPath();
-          ctx.arc(bx, by, 8, 0, Math.PI * 2);
-          ctx.fillStyle = stroke;
-          ctx.fill();
-          ctx.fillStyle    = isDark ? "#020609" : "#ffffff";
-          ctx.font         = "bold 9px 'Inter',sans-serif";
-          ctx.textAlign    = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(n.weight > 9 ? "9+" : n.weight, bx, by);
-        }
-      });
-
-      frame++;
-      animRef.current = requestAnimationFrame(draw);
-    };
-
-    draw();
-    return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
-  }, [nodes, edges, isDark]);
-
-  // ── Mouse hover detection ───────────────────────────────────────────────
-  const handleMouseMove = useCallback((e) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width  / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top)  * scaleY;
-    mouseRef.current = { x: mx, y: my };
-
-    const ns = nodesRef.current;
-    let found = null;
-    for (let i = 0; i < ns.length; i++) {
-      const r  = 20 + Math.min(ns[i].weight * 2, 12) + 8;
-      const dx = ns[i].x - mx;
-      const dy = ns[i].y - my;
-      if (Math.hypot(dx, dy) < r) { found = i; break; }
-    }
-    hoveredRef.current = found;
-    setHoveredNode(found !== null ? ns[found] : null);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    hoveredRef.current = null;
-    setHoveredNode(null);
-  }, []);
-
-  // ── Empty / loading states ──────────────────────────────────────────────
-  if (!data) return (
-    <div style={{height:340,display:"flex",alignItems:"center",justifyContent:"center",
-      color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
-      ⏳ Loading knowledge graph...
-    </div>
-  );
-
-  if (nodes.length === 0) return (
-    <div style={{height:340,display:"flex",flexDirection:"column",alignItems:"center",
-      justifyContent:"center",gap:12,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
-      <div style={{fontSize:36}}>🕸</div>
-      <div>No graph data yet — submit complaints to build the network</div>
-      <div style={{fontSize:11,opacity:.5,maxWidth:340,textAlign:"center",lineHeight:1.6}}>
-        Relations data: {JSON.stringify(data).slice(0,100)}…
-      </div>
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
     </div>
   );
 
   return (
-<<<<<<< HEAD
     <div style={{position:"relative"}}>
       <canvas ref={canvasRef} width={900} height={320} style={{width:"100%",height:320,borderRadius:6}}/>
       {/* Legend */}
@@ -1067,123 +673,6 @@ function KnowledgeGraph({ data, isDark }) {
         {[["🏙 City","#00ccff"],["⚠ Issue","#ffb800"]].map(([l,c])=>(
           <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:c,fontFamily:"'Inter',sans-serif",fontWeight:600}}>{l}</div>
         ))}
-=======
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
-
-      {/* ── Stats bar ── */}
-      {stats && (
-        <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
-          {[
-            ["Nodes",   stats.totalNodes, t.accent],
-            ["Edges",   stats.totalEdges, t.accent],
-            ["Cities",  stats.cities,     isDark?"#00ccff":"#0050cc"],
-            ["Issues",  stats.issues,     isDark?"#ffb800":"#8a5000"],
-            ["Top city",  stats.topCity,  isDark?"#00ccff":"#0050cc"],
-            ["Top issue", stats.topIssue, isDark?"#ffb800":"#8a5000"],
-          ].map(([label, val, col]) => (
-            <div key={label} style={{
-              padding:"8px 10px",
-              background: isDark ? "rgba(0,0,0,.25)" : "rgba(0,40,120,.04)",
-              border:`1px solid ${col}28`,
-              borderRadius:6,
-              textAlign:"center",
-            }}>
-              <div style={{fontSize:10,color:t.txtMute,fontFamily:"'Inter',sans-serif",
-                letterSpacing:"0.05em",marginBottom:4}}>{label.toUpperCase()}</div>
-              <div style={{fontSize:13,fontWeight:700,color:col,
-                fontFamily:"'DM Mono',monospace",overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Canvas + tooltip ── */}
-      <div style={{position:"relative"}}>
-        <canvas
-          ref={canvasRef}
-          width={900}
-          height={380}
-          onMouseMove={handleMouseMove}
-          onMouseLeave={handleMouseLeave}
-          style={{
-            width:"100%", height:380, borderRadius:8, cursor:"crosshair",
-            border:`1px solid ${t.border}`,
-            background: isDark ? "rgba(2,6,12,0.6)" : "rgba(240,246,255,0.6)",
-          }}
-        />
-
-        {/* Hover tooltip */}
-        {hoveredNode && (
-          <div style={{
-            position:"absolute",
-            top: 12, left: 12,
-            background: isDark ? "rgba(4,10,22,0.95)" : "rgba(255,255,255,0.95)",
-            border:`1px solid ${hoveredNode.type==="city"
-              ? (isDark?"#00ccff":"#0050cc")
-              : (isDark?"#ffb800":"#8a5000")}50`,
-            borderRadius:8,
-            padding:"10px 14px",
-            backdropFilter:"blur(12px)",
-            pointerEvents:"none",
-            minWidth:160,
-          }}>
-            <div style={{
-              fontSize:12, fontWeight:700,
-              color: hoveredNode.type==="city"
-                ? (isDark?"#00ccff":"#0050cc")
-                : (isDark?"#ffb800":"#8a5000"),
-              fontFamily:"'Inter',sans-serif",
-              marginBottom:6,
-              display:"flex", alignItems:"center", gap:6,
-            }}>
-              {hoveredNode.type === "city" ? "🏙" : "⚠"} {hoveredNode.label}
-            </div>
-            {[
-              ["Type",    hoveredNode.type === "city" ? "City node" : "Issue node"],
-              ["Reports", hoveredNode.weight],
-              ["Connections", edgesRef.current.filter(
-                e => e.from === hoveredNode.id || e.to === hoveredNode.id
-              ).length],
-            ].map(([k,v]) => (
-              <div key={k} style={{display:"flex",justifyContent:"space-between",
-                gap:16,fontSize:11,marginBottom:3}}>
-                <span style={{color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>{k}</span>
-                <span style={{color:t.txt,fontFamily:"'DM Mono',monospace",fontWeight:600}}>{v}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Legend */}
-        <div style={{
-          position:"absolute", bottom:16, right:12,
-          background: isDark ? "rgba(4,10,22,0.88)" : "rgba(255,255,255,0.92)",
-          border:`1px solid ${t.border}`,
-          borderRadius:6, padding:"8px 12px",
-          backdropFilter:"blur(8px)",
-          display:"flex", flexDirection:"column", gap:6,
-        }}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:12,height:12,borderRadius:"50%",
-              background: isDark?"rgba(0,200,255,.2)":"rgba(0,80,200,.15)",
-              border:`1.5px solid ${isDark?"#00ccff":"#0050cc"}`}}/>
-            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>City</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:10,height:10,
-              background: isDark?"rgba(255,184,0,.2)":"rgba(160,100,0,.15)",
-              border:`1.5px solid ${isDark?"#ffb800":"#8a5000"}`,
-              transform:"rotate(45deg)"}}/>
-            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>Issue</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:6,height:6,borderRadius:"50%",
-              background: isDark?"#00ff9d":"#007840"}}/>
-            <span style={{fontSize:11,color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>Data flow</span>
-          </div>
-        </div>
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
       </div>
     </div>
   );
@@ -2461,29 +1950,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             </div>
           )}
 
-<<<<<<< HEAD
         </div>{/* end content padding */}
-=======
-            {/* ════════ INTELLIGENCE ════════ */}
-            {activeTab==="intelligence"&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}><Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}><AIInsightPanel insight={aiInsight} loading={loading} error={error}/></Panel><div style={{display:"flex",flexDirection:"column",gap:12}}><Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}><div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>{predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})} {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel><Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>{alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}{!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel></div></div>)}
-
-            {/* ════════ ANALYTICS ════════ */}
-            {activeTab==="analytics"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>{(loading&&!riskEntries.length?Array.from({length:8},(_,i)=>({city:`CITY-${i+1}`,score:0,_loading:true})):riskEntries).map((c,i)=>(<Panel key={c.city} acc={c._loading?theme.accent:riskCol(c.score,isDark)} style={{animation:`fadeUp .4s ease ${i*.05}s both`,cursor:c._loading?"default":"pointer"}}><div style={{textAlign:"center"}} onClick={()=>!c._loading&&setSelectedCity(c.city)}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:10}}>{c.city.toUpperCase()}</div>{c._loading?<Skeleton h={80} w="80px" mb={0} style={{margin:"0 auto"}}/>:(<svg width="80" height="80" style={{display:"block",margin:"0 auto"}}><circle cx="40" cy="40" r="30" fill="none" stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.07)"} strokeWidth="5"/><circle cx="40" cy="40" r="30" fill="none" stroke={riskCol(c.score,isDark)} strokeWidth="5" strokeDasharray={`${(c.score/100)*188.5} ${188.5-(c.score/100)*188.5}`} strokeDashoffset="47.1" strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s ease"}}/><text x="40" y="45" textAnchor="middle" fill={riskCol(c.score,isDark)} fontSize="18" fontFamily="DM Mono,monospace" fontWeight="500">{c.score}</text></svg>)}<div style={{fontSize:13,color:c._loading?theme.txtMute:riskCol(c.score,isDark),fontFamily:"'Inter',sans-serif",marginTop:8}}>{c._loading?"LOADING…":riskLabel(c.score)}</div></div></Panel>))}</div><Panel title="LIVE CIVIC EVENT FEED" subtitle={`/events · ${eventList.length} incidents · polling every ${POLL_MS/1000}s`} acc={theme.accent} tag={`${eventList.length} EVENTS`}><div style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px"}}>{["TIME","LOCATION","DESCRIPTION","ISSUE","SENTIMENT","RISK SCORE"].map(h=>(<div key={h} style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.07em",padding:"5px 8px",borderBottom:`1px solid ${theme.border}`}}>{h}</div>))}</div><div style={{maxHeight:360,overflowY:"auto"}}>{loading&&!eventList.length?Array.from({length:6},(_,i)=><div key={i} style={{padding:"8px",borderBottom:`1px solid ${theme.border}22`}}><Skeleton h={14} mb={0}/></div>):eventList.length?eventList.map((e,i)=>{const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"—";const risk=e.risk_score??e.risk??0;const sent=e.sentiment??0;return(<div key={i} style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px",alignItems:"center",borderBottom:`1px solid ${theme.border}20`,animation:`fadeUp .3s ease ${Math.min(i,.2)*i*.02}s both`,transition:"background .15s"}} onMouseEnter={e2=>e2.currentTarget.style.background=`${theme.accent}06`} onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{ts}</div><div style={{fontSize:14,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700,padding:"6px 8px"}}>{e.location||e.city||"—"}</div><div style={{fontSize:14,color:theme.txtSub,fontFamily:"'DM Mono',monospace",padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.text||e.description||"—"}</div><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{e.issue||"—"}</div><div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div><div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:4,borderRadius:2,background:`${riskCol(risk,isDark)}25`}}><div style={{height:"100%",width:`${risk}%`,background:riskCol(risk,isDark),borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:14,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700}}>{risk}</span></div></div>);}):(<div style={{padding:"30px",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for events…</div>)}</div></Panel></div>)}
-
-            {/* ════════ KNOWLEDGE GRAPH ════════ */}
-            {activeTab==="graph"&&(<div style={{animation:"slideIn .4s ease"}}><Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">{loading&&!knowledgeGraph?<div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div><Skeleton h={200}/></div>:<KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>}</Panel>{knowledgeGraph&&(<div style={{marginTop:12}}><Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}><pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>{JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}</pre></Panel></div>)}</div>)}
-
-            {/* ════════ MY REPORTS ════════ */}
-            {activeTab==="myreports"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div><div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div></div><button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>📸 New Report</button></div><div style={{display:"flex",gap:12,marginBottom:16}}>{[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(<div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}><div style={{width:8,height:8,borderRadius:"50%",background:c}}/>{l}</div>))}</div>{myReportsLoading?(<div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}><div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/><span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span></div>):myReports.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}><div style={{fontSize:32,marginBottom:12}}>📭</div>No reports yet. Submit complaints from the Citizen App.</div>):(<div style={{display:"flex",flexDirection:"column",gap:10}}>{myReports.map((r,i)=>{const status=r.status||"submitted";const statusColor=status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;const statusLabel=status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";const progress=status==="resolved"?100:status==="in_progress"?55:20;const issue=r.issue||r.text||"Civic Issue";const ward=r.ward||r.city||r.location||"—";const date=r.created_at?new Date(r.created_at).toLocaleDateString("en-IN"):r.date||"Recent";const risk=r.risk_score||r.risk||0;const rid=r.id||r._id||r.report_id||("CS"+i);return(<div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}><div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span><span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span></div><div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>{[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(<div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>))}</div><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}><div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span></div></div><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}><span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span><div style={{width:42,height:42,position:"relative"}}><svg width="42" height="42"><circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/><circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4" strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`} strokeDashoffset="26.7" strokeLinecap="round"/></svg><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div></div></div></div>);})}</div>)}</div>)}
-
-            {/* ════════ AI CIVIC COPILOT ════════ */}
-            {activeTab==="copilot"&&(<div style={{animation:"slideIn .4s ease"}}><AICivicCopilotPanel theme={theme} isDark={isDark} riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/></div>)}
-
-            {/* ════════ LIVE WEBSOCKET STREAM ════════ */}
-            {activeTab==="livestream"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/><span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span></div><span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>{wsEventList.length>0&&<span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{wsEventList.length} EVENTS RECEIVED</span>}</div><Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">{wsEventList.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}><div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div><div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div><div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div></div>):(<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>{wsEventList.map((e,i)=>{const risk = e.city_risk_score ?? e.risk_score ?? e.risk ?? 0;;const col=riskCol(risk,isDark);const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"LIVE";return(<div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}><div style={{flexShrink:0,marginTop:2}}><span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>{e.issue&&<span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}<span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span></div>{e.text&&<div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}</div><div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div></div>);})}</div>)}</Panel>{eventList.length>0&&(<div style={{marginTop:12}}><Panel title="REST EVENT FEED" subtitle={"/events · "+eventList.length+" total · polled every "+POLL_MS/1000+"s"} acc={theme.amber} tag="REST"><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>{eventList.slice(0,20).map((e,i)=>{const risk = e.city_risk_score ?? e.risk_score ?? e.risk ?? 0;;const col=riskCol(risk,isDark);return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}><span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/><span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span><span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span><span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span></div>);})}</div></Panel></div>)}</div>)}
-
-          </div>
->>>>>>> ab79b9b73bf1f67ee5724a7e93e90a4c63de4b99
 
           {/* Footer */}
           <footer style={{padding:"10px 28px 16px",borderTop:`1px solid ${theme.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
