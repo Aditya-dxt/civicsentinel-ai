@@ -3,17 +3,11 @@ import { LANGS, tl } from "./translations";
 
 // ═══════════════════════════════════════════════════════════
 // CITIZEN HOME — Report button + My Reports + Language picker
-<<<<<<< HEAD
-// No analytics, no dashboards. Just what citizens need.
-// ═════════════════════════════════════════════════════════
-const API = "https://civicsentinel-ai-1-z7io.onrender.com";
-=======
 // FIX: Removed MOCK_REPORTS. My Reports now fetches from
 //      /my-reports?user_id=<firebase_uid> — user-scoped only.
 // ═══════════════════════════════════════════════════════════
 
-const API = "https://civicsentinel-ai-1.onrender.com";
->>>>>>> f5718d39ec96dec7833d187810236c0f58affc91
+const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 const STATUS_COLOR = {
   submitted:   "#3b82f6",

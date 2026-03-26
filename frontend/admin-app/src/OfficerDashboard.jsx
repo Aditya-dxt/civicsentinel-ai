@@ -8,13 +8,8 @@ import {
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════════════════════════════
-<<<<<<< HEAD
 const API = "https://civicsentinel-ai-1-z7io.onrender.com";
-const POLL_MS = 8000; // 8s — Render free tier is slow
-=======
-const API = "https://civicsentinel-ai-1.onrender.com";
 const POLL_MS = 8000;
->>>>>>> f5718d39ec96dec7833d187810236c0f58affc91
 
 // ══════════════════════════════════════════════════════════════════════════════
 // THEME
@@ -148,17 +143,8 @@ function useDashboard() {
     let ws; let retryTimer; let dead = false;
     const connect = () => {
       try {
-<<<<<<< HEAD
         ws = new WebSocket(`wss://civicsentinel-ai-1-z7io.onrender.com/ws/events`);
-
-        ws.onopen = () => {
-          setState(prev => ({ ...prev, wsConnected: true }));
-        };
-
-=======
-        ws = new WebSocket(`wss://civicsentinel-ai-1.onrender.com/ws/events`);
         ws.onopen  = () => setState(prev => ({ ...prev, wsConnected: true }));
->>>>>>> f5718d39ec96dec7833d187810236c0f58affc91
         ws.onmessage = (msg) => {
           try {
             const data = JSON.parse(msg.data);
@@ -1028,205 +1014,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 ))}
               </div>
 
-<<<<<<< HEAD
-              {/* Full event table */}
-              <Panel title="LIVE CIVIC EVENT FEED" subtitle={`/events · ${eventList.length} incidents · polling every ${POLL_MS/1000}s`} acc={theme.accent} tag={`${eventList.length} EVENTS`}>
-                <div style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px"}}>
-                  {["TIME","LOCATION","DESCRIPTION","ISSUE","SENTIMENT","RISK SCORE"].map(h=>(
-                    <div key={h} style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.07em",padding:"5px 8px",borderBottom:`1px solid ${theme.border}`}}>{h}</div>
-                  ))}
-                </div>
-                <div style={{maxHeight:360,overflowY:"auto"}}>
-                  {loading&&!eventList.length
-                    ? Array.from({length:6},(_,i)=><div key={i} style={{padding:"8px",borderBottom:`1px solid ${theme.border}22`}}><Skeleton h={14} mb={0}/></div>)
-                    : eventList.length
-                      ? eventList.map((e,i)=>{
-                          const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"—";
-                          const risk=e.risk_score??e.risk??0; const sent=e.sentiment??0;
-                          return (
-                            <div key={i} style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px",alignItems:"center",borderBottom:`1px solid ${theme.border}20`,animation:`fadeUp .3s ease ${Math.min(i,.2)*i*.02}s both`,transition:"background .15s"}}
-                              onMouseEnter={e2=>e2.currentTarget.style.background=`${theme.accent}06`}
-                              onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}>
-                              <div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{ts}</div>
-                              <div style={{fontSize:14,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700,padding:"6px 8px"}}>{e.location||e.city||"—"}</div>
-                              <div style={{fontSize:14,color:theme.txtSub,fontFamily:"'DM Mono',monospace",padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.text||e.description||"—"}</div>
-                              <div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{e.issue||"—"}</div>
-                              <div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div>
-                              <div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}>
-                                <div style={{flex:1,height:4,borderRadius:2,background:`${riskCol(risk,isDark)}25`}}><div style={{height:"100%",width:`${risk}%`,background:riskCol(risk,isDark),borderRadius:2,transition:"width 1s ease"}}/></div>
-                                <span style={{fontSize:14,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700}}>{risk}</span>
-                              </div>
-                            </div>
-                          );
-                        })
-                      : <div style={{padding:"30px",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for events from backend…</div>
-                  }
-                </div>
-              </Panel>
-            </div>
-          )}
-
-          {/* ════════════ KNOWLEDGE GRAPH ════════════ */}
-          {activeTab==="graph" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">
-                {loading&&!knowledgeGraph
-                  ? <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
-                      <div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div>
-                      <Skeleton h={200}/>
-                    </div>
-                  : <KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>
-                }
-              </Panel>
-              {/* Raw data dump */}
-              {knowledgeGraph && (
-                <div style={{marginTop:12}}>
-                  <Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}>
-                    <pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>
-                      {JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}
-                    </pre>
-                  </Panel>
-                </div>
-              )}
-            </div>
-          )}
-          {/* ════════════ MY REPORTS ════════════ */}
-          {activeTab==="myreports" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div>
-                  <div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div>
-                  <div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div>
-                </div>
-                <button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                  📸 New Report
-                </button>
-              </div>
-
-              {/* Status legend */}
-              <div style={{display:"flex",gap:12,marginBottom:16}}>
-                {[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(
-                  <div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:c}}/>
-                    {l}
-                  </div>
-                ))}
-              </div>
-
-              <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                {MY_REPORTS.map((r,i)=>{
-                  const statusColor = r.status==="resolved"?"#00ff9d":r.status==="in_progress"?theme.amber:theme.accent;
-                  const statusLabel = r.status==="resolved"?"✓ Resolved":r.status==="in_progress"?"⏳ In Progress":"📤 Submitted";
-                  const progress    = r.status==="resolved"?100:r.status==="in_progress"?55:20;
-                  return (
-                    <div key={r.id} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
-                      onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
-                      onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
-                      <div>
-                        <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                          <span style={{fontSize:16}}>{r.issue.split(" ")[0]}</span>
-                          <span style={{fontSize:14,fontWeight:700,color:theme.txt}}>{r.issue.split(" ").slice(1).join(" ")}</span>
-                          <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700}}>{statusLabel}</span>
-                        </div>
-                        <div style={{display:"flex",gap:16,marginBottom:8}}>
-                          {[["🏘️",r.ward],["🕐",r.date],["⚡",`Risk: ${r.risk}/100`]].map(([icon,val])=>(
-                            <div key={val} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
-                          ))}
-                        </div>
-                        {/* Progress bar */}
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
-                            <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
-                          </div>
-                          <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
-                        </div>
-                      </div>
-                      <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
-                        <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{r.id}</span>
-                        <div style={{width:42,height:42,position:"relative"}}>
-                          <svg width="42" height="42">
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
-                            <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
-                              strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
-                              strokeDashoffset="26.7" strokeLinecap="round"/>
-                          </svg>
-                          <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ════════════ AI CIVIC COPILOT (/ai-civic-copilot) ════════════ */}
-          {activeTab==="copilot" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <AICivicCopilotPanel theme={theme} isDark={isDark}
-                riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/>
-            </div>
-          )}
-
-          {/* ════════════ LIVE WEBSOCKET STREAM ════════════ */}
-          {activeTab==="livestream" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:7}}>
-                  <span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/>
-                  <span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span>
-                </div>
-                <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>
-                {wsEventList.length > 0 && (
-                  <span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
-                    {wsEventList.length} EVENTS RECEIVED
-                  </span>
-                )}
-              </div>
-
-              {/* Live event stream */}
-              <Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">
-                {wsEventList.length === 0 ? (
-                  <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}>
-                    <div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div>
-                    <div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div>
-                    <div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div>
-                  </div>
-                ) : (
-                  <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>
-                    {wsEventList.map((e,i)=>{
-                      const risk = e.risk_score||e.risk||0;
-                      const col  = riskCol(risk,isDark);
-                      const ts   = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "LIVE";
-                      return (
-                        <div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}>
-                          <div style={{flexShrink:0,marginTop:2}}>
-                            <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/>
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
-                              <span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>
-                              {e.issue && <span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}
-                              <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span>
-                            </div>
-                            {e.text && <div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}
-                          </div>
-                          <div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </Panel>
-
-              {/* Also show REST /events alongside for comparison */}
-              {eventList.length > 0 && (
-                <div style={{marginTop:12}}>
-                  <Panel title="REST EVENT FEED" subtitle={"/events · " + eventList.length + " total · polled every " + POLL_MS/1000 + "s"} acc={theme.amber} tag="REST">
-                    <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>
-                      {eventList.slice(0,20).map((e,i)=>{
-                        const risk=e.risk_score||e.risk||0; const col=riskCol(risk,isDark);
-=======
               <div style={{display:"grid",gridTemplateColumns:"1.1fr .95fr 290px",gap:12,marginBottom:12}}>
                 {/* ── HEATMAP PANEL ── */}
                 <Panel
@@ -1261,7 +1048,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                         const label = hasData
                           ? `${WARD_GEOJSON[city] ? "📍" : "🏙"} ${city} — Risk: ${score}`
                           : `🏙 ${city}`;
->>>>>>> f5718d39ec96dec7833d187810236c0f58affc91
                         return (
                           <option key={city} value={city}>{label}</option>
                         );
@@ -1376,7 +1162,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             {activeTab==="copilot"&&(<div style={{animation:"slideIn .4s ease"}}><AICivicCopilotPanel theme={theme} isDark={isDark} riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/></div>)}
 
             {/* ════════ LIVE WEBSOCKET STREAM ════════ */}
-            {activeTab==="livestream"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/><span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span></div><span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1.onrender.com/ws/events</span>{wsEventList.length>0&&<span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{wsEventList.length} EVENTS RECEIVED</span>}</div><Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">{wsEventList.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}><div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div><div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div><div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div></div>):(<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>{wsEventList.map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"LIVE";return(<div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}><div style={{flexShrink:0,marginTop:2}}><span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>{e.issue&&<span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}<span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span></div>{e.text&&<div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}</div><div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div></div>);})}</div>)}</Panel>{eventList.length>0&&(<div style={{marginTop:12}}><Panel title="REST EVENT FEED" subtitle={"/events · "+eventList.length+" total · polled every "+POLL_MS/1000+"s"} acc={theme.amber} tag="REST"><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>{eventList.slice(0,20).map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}><span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/><span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span><span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span><span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span></div>);})}</div></Panel></div>)}</div>)}
+            {activeTab==="livestream"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}><div style={{display:"flex",alignItems:"center",gap:7}}><span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/><span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span></div><span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>{wsEventList.length>0&&<span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{wsEventList.length} EVENTS RECEIVED</span>}</div><Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">{wsEventList.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}><div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div><div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div><div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div></div>):(<div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>{wsEventList.map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"LIVE";return(<div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}><div style={{flexShrink:0,marginTop:2}}><span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}><span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>{e.issue&&<span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}<span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span></div>{e.text&&<div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}</div><div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div></div>);})}</div>)}</Panel>{eventList.length>0&&(<div style={{marginTop:12}}><Panel title="REST EVENT FEED" subtitle={"/events · "+eventList.length+" total · polled every "+POLL_MS/1000+"s"} acc={theme.amber} tag="REST"><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>{eventList.slice(0,20).map((e,i)=>{const risk=e.risk_score||e.risk||0;const col=riskCol(risk,isDark);return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}><span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/><span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span><span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span><span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span></div>);})}</div></Panel></div>)}</div>)}
 
           </div>
 
