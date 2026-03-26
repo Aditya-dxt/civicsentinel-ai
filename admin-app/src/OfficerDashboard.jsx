@@ -527,35 +527,31 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// KNOWLEDGE GRAPH — Professional force-directed network visualization
+// KNOWLEDGE GRAPH — Static force-directed network visualization
 //
 // DROP-IN REPLACEMENT for the existing KnowledgeGraph function in
 // OfficerDashboard.jsx. Find "function KnowledgeGraph({ data, isDark })"
 // and replace the ENTIRE function with this code.
 //
-// Improvements over the old version:
-//   • Force-directed layout — nodes repel each other, edges pull them together
-//   • City nodes: large cyan circles, issue nodes: smaller amber diamonds
-//   • Node size scales with risk score (cities) or report frequency (issues)
-//   • Animated edges with directional flow pulses
-//   • Hover tooltips showing node details
-//   • Stats sidebar: total nodes, edges, most connected city, hottest issue
-//   • Clean grid background matching the dashboard aesthetic
-//   • Fully dark/light mode aware via isDark prop
+// v2 fixes:
+//   • Physics runs for 300 steps OFFLINE then STOPS — fully static result
+//   • Nodes spread across the full canvas with stronger repulsion
+//   • Minimum distance enforced so nodes never overlap
+//   • Only pulse dots animate — nodes themselves never move after settling
+//   • Canvas uses full width/height so graph doesn't cluster center
 // ══════════════════════════════════════════════════════════════════════════════
 
 function KnowledgeGraph({ data, isDark }) {
   const t = useT();
-  const canvasRef   = useRef(null);
-  const animRef     = useRef(null);
-  const nodesRef    = useRef([]);
-  const edgesRef    = useRef([]);
-  const hoveredRef  = useRef(null);
-  const mouseRef    = useRef({ x: 0, y: 0 });
+  const canvasRef    = useRef(null);
+  const animRef      = useRef(null);
+  const placedRef    = useRef([]);   // settled static positions
+  const edgesRef     = useRef([]);
+  const hoveredRef   = useRef(null);
   const [hoveredNode, setHoveredNode] = useState(null);
   const [stats, setStats]             = useState(null);
 
-  // ── Parse API data into nodes + edges ──────────────────────────────────
+  // ── Parse API data ────────────────────────────────────────────────────
   const { nodes, edges } = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
 
@@ -564,260 +560,238 @@ function KnowledgeGraph({ data, isDark }) {
     const es = [];
 
     const addNode = (label, type, weight = 1) => {
-      if (label in nodeMap) {
-        nodeMap[label].weight += weight;
-        return nodeMap[label];
-      }
-      const node = {
-        id:     ns.length,
-        label:  String(label).slice(0, 16),
-        type,
-        weight,
-        x:      0,
-        y:      0,
-        vx:     0,
-        vy:     0,
-      };
-      nodeMap[label] = node;
+      const key = String(label).toLowerCase().trim();
+      if (key in nodeMap) { nodeMap[key].weight += weight; return nodeMap[key]; }
+      const node = { id: ns.length, label: String(label).slice(0, 16), type, weight };
+      nodeMap[key] = node;
       ns.push(node);
       return node;
     };
 
-    // Handle { relations: [{city, issue}] } shape from API
-    const relations = data.relations || [];
-    relations.forEach(rel => {
+    (data.relations || []).forEach(rel => {
       const cityLabel  = rel.city  || rel.source || rel.from;
       const issueLabel = rel.issue || rel.target || rel.to;
       if (!cityLabel || !issueLabel) return;
-
-      const cityNode  = addNode(cityLabel,  "city",  1);
-      const issueNode = addNode(issueLabel, "issue", 1);
-
-      // Avoid duplicate edges
-      const exists = es.some(
-        e => (e.from === cityNode.id && e.to === issueNode.id) ||
-             (e.from === issueNode.id && e.to === cityNode.id)
+      const cn = addNode(cityLabel,  "city",  1);
+      const in_ = addNode(issueLabel, "issue", 1);
+      const exists = es.some(e =>
+        (e.from === cn.id && e.to === in_.id) ||
+        (e.from === in_.id && e.to === cn.id)
       );
-      if (!exists) {
-        es.push({
-          from:   cityNode.id,
-          to:     issueNode.id,
-          pulse:  Math.random(), // staggered animation offset
-        });
-      }
+      if (!exists) es.push({ from: cn.id, to: in_.id, pulse: Math.random() });
     });
 
-    // Fallback: plain object map
+    // Fallback for plain object
     if (ns.length === 0 && typeof data === "object" && !Array.isArray(data)) {
-      const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k));
-      keys.slice(0, 12).forEach(k => {
-        addNode(k, "city", typeof data[k] === "number" ? data[k] : 1);
-      });
+      Object.keys(data)
+        .filter(k => !["nodes","edges","relations"].includes(k))
+        .slice(0, 12)
+        .forEach(k => addNode(k, "city", typeof data[k] === "number" ? data[k] : 1));
     }
 
     return { nodes: ns, edges: es };
   }, [data]);
 
-  // ── Compute stats ───────────────────────────────────────────────────────
+  // ── Compute stats ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!nodes.length) return;
-    const cityNodes  = nodes.filter(n => n.type === "city");
-    const issueNodes = nodes.filter(n => n.type === "issue");
-
-    // Most connected city = highest edge count
-    const cityEdgeCounts = {};
+    const cityEdge = {}, issueEdge = {};
     edges.forEach(e => {
-      const fn = nodes[e.from]; const tn = nodes[e.to];
-      if (fn?.type === "city") cityEdgeCounts[fn.label] = (cityEdgeCounts[fn.label] || 0) + 1;
-      if (tn?.type === "city") cityEdgeCounts[tn.label] = (cityEdgeCounts[tn.label] || 0) + 1;
+      const a = nodes[e.from], b = nodes[e.to];
+      if (a?.type === "city")  cityEdge[a.label]  = (cityEdge[a.label]  || 0) + 1;
+      if (b?.type === "city")  cityEdge[b.label]  = (cityEdge[b.label]  || 0) + 1;
+      if (a?.type === "issue") issueEdge[a.label] = (issueEdge[a.label] || 0) + 1;
+      if (b?.type === "issue") issueEdge[b.label] = (issueEdge[b.label] || 0) + 1;
     });
-    const topCity = Object.entries(cityEdgeCounts).sort((a,b) => b[1]-a[1])[0];
-
-    // Hottest issue = most edges
-    const issueEdgeCounts = {};
-    edges.forEach(e => {
-      const fn = nodes[e.from]; const tn = nodes[e.to];
-      if (fn?.type === "issue") issueEdgeCounts[fn.label] = (issueEdgeCounts[fn.label] || 0) + 1;
-      if (tn?.type === "issue") issueEdgeCounts[tn.label] = (issueEdgeCounts[tn.label] || 0) + 1;
-    });
-    const topIssue = Object.entries(issueEdgeCounts).sort((a,b) => b[1]-a[1])[0];
-
+    const topCity  = Object.entries(cityEdge).sort((a,b)=>b[1]-a[1])[0];
+    const topIssue = Object.entries(issueEdge).sort((a,b)=>b[1]-a[1])[0];
     setStats({
-      totalNodes:  nodes.length,
-      totalEdges:  edges.length,
-      cities:      cityNodes.length,
-      issues:      issueNodes.length,
-      topCity:     topCity  ? topCity[0]  : "—",
-      topIssue:    topIssue ? topIssue[0] : "—",
+      totalNodes: nodes.length, totalEdges: edges.length,
+      cities: nodes.filter(n=>n.type==="city").length,
+      issues: nodes.filter(n=>n.type==="issue").length,
+      topCity:  topCity  ? topCity[0]  : "—",
+      topIssue: topIssue ? topIssue[0] : "—",
     });
   }, [nodes, edges]);
 
-  // ── Force-directed simulation + render ─────────────────────────────────
+  // ── Run physics OFFLINE → settle → render static positions ───────────
   useEffect(() => {
     if (!nodes.length || !canvasRef.current) return;
 
-    const canvas  = canvasRef.current;
-    const ctx     = canvas.getContext("2d");
-    const W       = canvas.width;
-    const H       = canvas.height;
+    const canvas = canvasRef.current;
+    const W = canvas.width;
+    const H = canvas.height;
 
-    // Place nodes in a circle initially
-    const placed = nodes.map((n, i) => {
-      const angle = (i / nodes.length) * Math.PI * 2;
-      const r     = Math.min(W, H) * 0.32;
+    // ── Step 1: initialise positions spread across 80% of canvas ──────
+    // Use a grid-jitter layout so nodes start far apart
+    const cols    = Math.ceil(Math.sqrt(nodes.length * (W / H)));
+    const rows    = Math.ceil(nodes.length / cols);
+    const cellW   = (W * 0.82) / cols;
+    const cellH   = (H * 0.78) / rows;
+    const offsetX = W * 0.09;
+    const offsetY = H * 0.11;
+
+    let placed = nodes.map((n, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
       return {
         ...n,
-        x:  W / 2 + Math.cos(angle) * r + (Math.random() - 0.5) * 40,
-        y:  H / 2 + Math.sin(angle) * r + (Math.random() - 0.5) * 40,
+        x:  offsetX + col * cellW + cellW / 2 + (Math.random() - 0.5) * cellW * 0.55,
+        y:  offsetY + row * cellH + cellH / 2 + (Math.random() - 0.5) * cellH * 0.55,
         vx: 0,
         vy: 0,
       };
     });
 
-    nodesRef.current = placed;
-    edgesRef.current = edges;
+    // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
+    // Strong repulsion + weak edge attraction → spreads evenly then stops
+    const REPEL   = 7000;
+    const ATTRACT = 0.018;
+    const DAMPING = 0.78;
+    const PADDING = 60;    // min distance from canvas edge
+    const MIN_DIST = 75;   // minimum node-to-node distance
+
+    for (let step = 0; step < 320; step++) {
+      const cooling = 1 - step / 320; // cool down over time → less movement
+
+      for (let i = 0; i < placed.length; i++) {
+        let fx = 0, fy = 0;
+
+        // Repulsion
+        for (let j = 0; j < placed.length; j++) {
+          if (i === j) continue;
+          const dx   = placed[i].x - placed[j].x;
+          const dy   = placed[i].y - placed[j].y;
+          const dist = Math.max(Math.hypot(dx, dy), MIN_DIST * 0.5);
+          const force = REPEL / (dist * dist);
+          fx += (dx / dist) * force * cooling;
+          fy += (dy / dist) * force * cooling;
+        }
+
+        // Attraction along edges
+        edges.forEach(e => {
+          const other = e.from === i ? placed[e.to] : e.to === i ? placed[e.from] : null;
+          if (!other) return;
+          const dx = other.x - placed[i].x;
+          const dy = other.y - placed[i].y;
+          fx += dx * ATTRACT;
+          fy += dy * ATTRACT;
+        });
+
+        // Gentle center gravity
+        fx += (W / 2 - placed[i].x) * 0.003;
+        fy += (H / 2 - placed[i].y) * 0.003;
+
+        placed[i].vx = (placed[i].vx + fx) * DAMPING;
+        placed[i].vy = (placed[i].vy + fy) * DAMPING;
+
+        // Clamp velocity — reduces sharply as simulation cools
+        const maxV = 6 * cooling + 0.5;
+        placed[i].vx = Math.max(-maxV, Math.min(maxV, placed[i].vx));
+        placed[i].vy = Math.max(-maxV, Math.min(maxV, placed[i].vy));
+
+        placed[i].x = Math.max(PADDING, Math.min(W - PADDING, placed[i].x + placed[i].vx));
+        placed[i].y = Math.max(PADDING, Math.min(H - PADDING, placed[i].y + placed[i].vy));
+      }
+    }
+
+    // ── Step 3: zero out all velocities — positions are now FROZEN ─────
+    placed = placed.map(n => ({ ...n, vx: 0, vy: 0 }));
+    placedRef.current = placed;
+    edgesRef.current  = edges;
+
+    // ── Step 4: pure render loop — only pulse dots animate ────────────
+    const ctx = canvas.getContext("2d");
+
+    const CITY_FILL    = isDark ? "rgba(0,200,255,0.15)"  : "rgba(0,80,200,0.10)";
+    const CITY_STROKE  = isDark ? "#00ccff"               : "#0050cc";
+    const CITY_TEXT    = isDark ? "#7fe8ff"               : "#003899";
+    const ISSUE_FILL   = isDark ? "rgba(255,184,0,0.15)"  : "rgba(160,100,0,0.10)";
+    const ISSUE_STROKE = isDark ? "#ffb800"               : "#8a5000";
+    const ISSUE_TEXT   = isDark ? "#ffd066"               : "#6b3d00";
+    const EDGE_COL     = isDark ? "rgba(0,200,255,0.14)"  : "rgba(0,60,140,0.10)";
+    const PULSE_COL    = isDark ? "rgba(0,255,157,0.70)"  : "rgba(0,120,80,0.55)";
+    const GRID_COL     = isDark ? "rgba(0,200,255,0.035)" : "rgba(0,60,140,0.04)";
+    const HOV_COL      = isDark ? "rgba(0,200,255,0.28)"  : "rgba(0,60,200,0.20)";
+
+    const nodeR = (n) => (n.type === "city" ? 22 : 16) + Math.min(n.weight * 1.5, 10);
 
     let frame = 0;
-    let simSteps = 0;   // run physics for first 180 frames then settle
-
-    const REPEL    = 3200;
-    const ATTRACT  = 0.028;
-    const DAMPING  = 0.82;
-    const MAX_VEL  = 4.5;
-
-    // Colors
-    const CITY_FILL    = isDark ? "rgba(0,200,255,0.18)"  : "rgba(0,80,200,0.10)";
-    const CITY_STROKE  = isDark ? "#00ccff"               : "#0050cc";
-    const CITY_TEXT    = isDark ? "#00ccff"               : "#003899";
-    const ISSUE_FILL   = isDark ? "rgba(255,184,0,0.18)"  : "rgba(160,100,0,0.10)";
-    const ISSUE_STROKE = isDark ? "#ffb800"               : "#8a5000";
-    const ISSUE_TEXT   = isDark ? "#ffb800"               : "#6b3d00";
-    const EDGE_COLOR   = isDark ? "rgba(0,200,255,0.12)"  : "rgba(0,60,140,0.10)";
-    const PULSE_COLOR  = isDark ? "rgba(0,255,157,0.55)"  : "rgba(0,120,80,0.45)";
-    const GRID_COLOR   = isDark ? "rgba(0,200,255,0.04)"  : "rgba(0,60,140,0.04)";
-    const HOV_GLOW     = isDark ? "rgba(0,200,255,0.35)"  : "rgba(0,60,200,0.25)";
 
     const drawGrid = () => {
-      ctx.strokeStyle = GRID_COLOR;
+      ctx.strokeStyle = GRID_COL;
       ctx.lineWidth   = 0.5;
-      const step = 40;
-      for (let x = 0; x < W; x += step) {
-        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      for (let x = 0; x < W; x += 44) {
+        ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
       }
-      for (let y = 0; y < H; y += step) {
-        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      for (let y = 0; y < H; y += 44) {
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
       }
     };
 
-    const nodeRadius = (n) => {
-      const base = n.type === "city" ? 20 : 14;
-      return base + Math.min(n.weight * 2, 12);
-    };
-
-    const draw = () => {
+    const render = () => {
       ctx.clearRect(0, 0, W, H);
       drawGrid();
 
-      const ns = nodesRef.current;
+      const ns = placedRef.current;
 
-      // ── Physics (first 180 frames) ──
-      if (simSteps < 180) {
-        simSteps++;
-        for (let i = 0; i < ns.length; i++) {
-          let fx = 0, fy = 0;
-
-          // Repulsion between all node pairs
-          for (let j = 0; j < ns.length; j++) {
-            if (i === j) continue;
-            const dx = ns[i].x - ns[j].x;
-            const dy = ns[i].y - ns[j].y;
-            const dist = Math.max(Math.hypot(dx, dy), 1);
-            const force = REPEL / (dist * dist);
-            fx += (dx / dist) * force;
-            fy += (dy / dist) * force;
-          }
-
-          // Attraction along edges
-          edgesRef.current.forEach(e => {
-            const other = e.from === i ? ns[e.to] : e.to === i ? ns[e.from] : null;
-            if (!other) return;
-            const dx = other.x - ns[i].x;
-            const dy = other.y - ns[i].y;
-            fx += dx * ATTRACT;
-            fy += dy * ATTRACT;
-          });
-
-          // Center gravity (gentle pull to canvas center)
-          fx += (W / 2 - ns[i].x) * 0.004;
-          fy += (H / 2 - ns[i].y) * 0.004;
-
-          ns[i].vx = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vx + fx) * DAMPING));
-          ns[i].vy = Math.max(-MAX_VEL, Math.min(MAX_VEL, (ns[i].vy + fy) * DAMPING));
-          ns[i].x  = Math.max(40, Math.min(W - 40, ns[i].x + ns[i].vx));
-          ns[i].y  = Math.max(40, Math.min(H - 40, ns[i].y + ns[i].vy));
-        }
-      }
-
-      // ── Draw edges ──
+      // Edges + pulse dots (only animation)
       edgesRef.current.forEach(e => {
         const a = ns[e.from]; const b = ns[e.to];
         if (!a || !b) return;
 
-        // Base edge line
         ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.strokeStyle = EDGE_COLOR;
-        ctx.lineWidth   = 1.2;
+        ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+        ctx.strokeStyle = EDGE_COL;
+        ctx.lineWidth   = 1.4;
         ctx.stroke();
 
-        // Animated pulse dot travelling along the edge
-        const t_val = ((frame * 0.008 + e.pulse) % 1);
-        const px    = a.x + (b.x - a.x) * t_val;
-        const py    = a.y + (b.y - a.y) * t_val;
+        // Pulse dot
+        const t_  = (frame * 0.006 + e.pulse) % 1;
+        const px  = a.x + (b.x - a.x) * t_;
+        const py  = a.y + (b.y - a.y) * t_;
         ctx.beginPath();
-        ctx.arc(px, py, 2.5, 0, Math.PI * 2);
-        ctx.fillStyle = PULSE_COLOR;
+        ctx.arc(px, py, 2.8, 0, Math.PI * 2);
+        ctx.fillStyle = PULSE_COL;
         ctx.fill();
       });
 
-      // ── Draw nodes ──
+      // Static nodes
       ns.forEach((n, i) => {
-        const r       = nodeRadius(n);
-        const isCity  = n.type === "city";
-        const isHov   = hoveredRef.current === i;
-        const fill    = isCity  ? CITY_FILL   : ISSUE_FILL;
-        const stroke  = isCity  ? CITY_STROKE : ISSUE_STROKE;
-        const txtCol  = isCity  ? CITY_TEXT   : ISSUE_TEXT;
+        const r      = nodeR(n);
+        const isCity = n.type === "city";
+        const isHov  = hoveredRef.current === i;
+        const fill   = isCity ? CITY_FILL   : ISSUE_FILL;
+        const stroke = isCity ? CITY_STROKE : ISSUE_STROKE;
+        const txt    = isCity ? CITY_TEXT   : ISSUE_TEXT;
 
-        // Hover glow ring
+        // Hover glow
         if (isHov) {
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 8, 0, Math.PI * 2);
-          ctx.fillStyle   = HOV_GLOW;
+          ctx.arc(n.x, n.y, r + 10, 0, Math.PI * 2);
+          ctx.fillStyle = HOV_COL;
           ctx.fill();
         }
 
-        // Outer glow pulse (city nodes only)
+        // City outer ring (static, no pulse)
         if (isCity) {
-          const pulse = 0.5 + Math.sin(frame * 0.04 + i) * 0.5;
           ctx.beginPath();
-          ctx.arc(n.x, n.y, r + 4, 0, Math.PI * 2);
-          ctx.fillStyle = `${CITY_STROKE}${Math.round(pulse * 20).toString(16).padStart(2,"0")}`;
+          ctx.arc(n.x, n.y, r + 5, 0, Math.PI * 2);
+          ctx.fillStyle = `${CITY_STROKE}18`;
           ctx.fill();
         }
 
         if (isCity) {
-          // City: circle
+          // Circle
           ctx.beginPath();
           ctx.arc(n.x, n.y, r, 0, Math.PI * 2);
           ctx.fillStyle   = fill;
           ctx.fill();
           ctx.strokeStyle = stroke;
-          ctx.lineWidth   = isHov ? 2 : 1.5;
+          ctx.lineWidth   = isHov ? 2.5 : 1.8;
           ctx.stroke();
         } else {
-          // Issue: diamond shape
+          // Diamond
           const d = r * 1.1;
           ctx.beginPath();
           ctx.moveTo(n.x,     n.y - d);
@@ -828,66 +802,66 @@ function KnowledgeGraph({ data, isDark }) {
           ctx.fillStyle   = fill;
           ctx.fill();
           ctx.strokeStyle = stroke;
-          ctx.lineWidth   = isHov ? 2 : 1.5;
+          ctx.lineWidth   = isHov ? 2.5 : 1.8;
           ctx.stroke();
         }
 
-        // Type icon
-        ctx.fillStyle  = stroke;
-        ctx.font       = `${r * 0.72}px sans-serif`;
-        ctx.textAlign  = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText(isCity ? "🏙" : "⚠", n.x, n.y - 1);
-
-        // Label below node
-        ctx.font         = `500 11px 'Inter',sans-serif`;
-        ctx.fillStyle    = txtCol;
+        // Icon
+        ctx.font         = `${Math.round(r * 0.68)}px sans-serif`;
         ctx.textAlign    = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(n.label, n.x, n.y + r + 5);
+        ctx.textBaseline = "middle";
+        ctx.fillStyle    = stroke;
+        ctx.fillText(isCity ? "🏙" : "⚠", n.x, n.y);
 
-        // Weight badge (only if > 1)
+        // Label — below node, with a subtle backing rect for legibility
+        const labelY = n.y + r + 14;
+        ctx.font         = `600 11px 'Inter',sans-serif`;
+        ctx.textAlign    = "center";
+        ctx.textBaseline = "middle";
+        const textW = ctx.measureText(n.label).width;
+        ctx.fillStyle = isDark ? "rgba(2,6,12,0.55)" : "rgba(240,246,255,0.65)";
+        ctx.fillRect(n.x - textW / 2 - 4, labelY - 7, textW + 8, 14);
+        ctx.fillStyle    = txt;
+        ctx.fillText(n.label, n.x, labelY);
+
+        // Weight badge (if > 1)
         if (n.weight > 1) {
-          const bx = n.x + r * 0.65;
-          const by = n.y - r * 0.65;
+          const bx = n.x + r * 0.68; const by = n.y - r * 0.68;
           ctx.beginPath();
-          ctx.arc(bx, by, 8, 0, Math.PI * 2);
+          ctx.arc(bx, by, 9, 0, Math.PI * 2);
           ctx.fillStyle = stroke;
           ctx.fill();
           ctx.fillStyle    = isDark ? "#020609" : "#ffffff";
           ctx.font         = "bold 9px 'Inter',sans-serif";
           ctx.textAlign    = "center";
           ctx.textBaseline = "middle";
-          ctx.fillText(n.weight > 9 ? "9+" : n.weight, bx, by);
+          ctx.fillText(n.weight > 9 ? "9+" : String(n.weight), bx, by);
         }
       });
 
       frame++;
-      animRef.current = requestAnimationFrame(draw);
+      animRef.current = requestAnimationFrame(render);
     };
 
-    draw();
+    render();
     return () => { if (animRef.current) cancelAnimationFrame(animRef.current); };
   }, [nodes, edges, isDark]);
 
-  // ── Mouse hover detection ───────────────────────────────────────────────
-  const handleMouseMove = useCallback((e) => {
+  // ── Mouse hover ───────────────────────────────────────────────────────
+  const handleMouseMove = useCallback((ev) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width  / rect.width;
     const scaleY = canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top)  * scaleY;
-    mouseRef.current = { x: mx, y: my };
+    const mx = (ev.clientX - rect.left) * scaleX;
+    const my = (ev.clientY - rect.top)  * scaleY;
 
-    const ns = nodesRef.current;
+    const ns = placedRef.current;
     let found = null;
     for (let i = 0; i < ns.length; i++) {
-      const r  = 20 + Math.min(ns[i].weight * 2, 12) + 8;
-      const dx = ns[i].x - mx;
-      const dy = ns[i].y - my;
-      if (Math.hypot(dx, dy) < r) { found = i; break; }
+      const r = (ns[i].type === "city" ? 22 : 16) + Math.min(ns[i].weight * 1.5, 10) + 10;
+      if (Math.hypot(ns[i].x - mx, ns[i].y - my) < r) { found = i; break; }
     }
     hoveredRef.current = found;
     setHoveredNode(found !== null ? ns[found] : null);
@@ -898,21 +872,21 @@ function KnowledgeGraph({ data, isDark }) {
     setHoveredNode(null);
   }, []);
 
-  // ── Empty / loading states ──────────────────────────────────────────────
+  // ── Empty / loading states ────────────────────────────────────────────
   if (!data) return (
-    <div style={{height:340,display:"flex",alignItems:"center",justifyContent:"center",
+    <div style={{height:360,display:"flex",alignItems:"center",justifyContent:"center",
       color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
       ⏳ Loading knowledge graph...
     </div>
   );
-
   if (nodes.length === 0) return (
-    <div style={{height:340,display:"flex",flexDirection:"column",alignItems:"center",
-      justifyContent:"center",gap:12,color:t.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+    <div style={{height:360,display:"flex",flexDirection:"column",alignItems:"center",
+      justifyContent:"center",gap:12,color:t.txtMute,fontSize:13,
+      fontFamily:"'DM Mono',monospace"}}>
       <div style={{fontSize:36}}>🕸</div>
       <div>No graph data yet — submit complaints to build the network</div>
       <div style={{fontSize:11,opacity:.5,maxWidth:340,textAlign:"center",lineHeight:1.6}}>
-        Relations data: {JSON.stringify(data).slice(0,100)}…
+        {JSON.stringify(data).slice(0,100)}…
       </div>
     </div>
   );
@@ -920,84 +894,83 @@ function KnowledgeGraph({ data, isDark }) {
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
 
-      {/* ── Stats bar ── */}
+      {/* Stats bar */}
       {stats && (
         <div style={{display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:8}}>
           {[
-            ["Nodes",   stats.totalNodes, t.accent],
-            ["Edges",   stats.totalEdges, t.accent],
-            ["Cities",  stats.cities,     isDark?"#00ccff":"#0050cc"],
-            ["Issues",  stats.issues,     isDark?"#ffb800":"#8a5000"],
-            ["Top city",  stats.topCity,  isDark?"#00ccff":"#0050cc"],
-            ["Top issue", stats.topIssue, isDark?"#ffb800":"#8a5000"],
+            ["Nodes",     stats.totalNodes, t.accent],
+            ["Edges",     stats.totalEdges, t.accent],
+            ["Cities",    stats.cities,     isDark?"#00ccff":"#0050cc"],
+            ["Issues",    stats.issues,     isDark?"#ffb800":"#8a5000"],
+            ["Top city",  stats.topCity,    isDark?"#00ccff":"#0050cc"],
+            ["Top issue", stats.topIssue,   isDark?"#ffb800":"#8a5000"],
           ].map(([label, val, col]) => (
             <div key={label} style={{
-              padding:"8px 10px",
-              background: isDark ? "rgba(0,0,0,.25)" : "rgba(0,40,120,.04)",
-              border:`1px solid ${col}28`,
-              borderRadius:6,
-              textAlign:"center",
+              padding:"8px 10px", textAlign:"center",
+              background: isDark?"rgba(0,0,0,.25)":"rgba(0,40,120,.04)",
+              border:`1px solid ${col}28`, borderRadius:6,
             }}>
               <div style={{fontSize:10,color:t.txtMute,fontFamily:"'Inter',sans-serif",
-                letterSpacing:"0.05em",marginBottom:4}}>{label.toUpperCase()}</div>
+                letterSpacing:"0.05em",marginBottom:4}}>
+                {label.toUpperCase()}
+              </div>
               <div style={{fontSize:13,fontWeight:700,color:col,
                 fontFamily:"'DM Mono',monospace",overflow:"hidden",
-                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{val}</div>
+                textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                {val}
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Canvas + tooltip ── */}
+      {/* Canvas */}
       <div style={{position:"relative"}}>
         <canvas
           ref={canvasRef}
-          width={900}
-          height={380}
+          width={1100}
+          height={420}
           onMouseMove={handleMouseMove}
           onMouseLeave={handleMouseLeave}
           style={{
-            width:"100%", height:380, borderRadius:8, cursor:"crosshair",
+            width:"100%", height:420,
+            borderRadius:8, cursor:"crosshair",
             border:`1px solid ${t.border}`,
-            background: isDark ? "rgba(2,6,12,0.6)" : "rgba(240,246,255,0.6)",
+            background: isDark?"rgba(2,6,12,0.65)":"rgba(238,245,255,0.65)",
           }}
         />
 
         {/* Hover tooltip */}
         {hoveredNode && (
           <div style={{
-            position:"absolute",
-            top: 12, left: 12,
-            background: isDark ? "rgba(4,10,22,0.95)" : "rgba(255,255,255,0.95)",
+            position:"absolute", top:14, left:14, zIndex:10,
+            background: isDark?"rgba(4,10,22,0.96)":"rgba(255,255,255,0.96)",
             border:`1px solid ${hoveredNode.type==="city"
-              ? (isDark?"#00ccff":"#0050cc")
-              : (isDark?"#ffb800":"#8a5000")}50`,
-            borderRadius:8,
-            padding:"10px 14px",
-            backdropFilter:"blur(12px)",
-            pointerEvents:"none",
-            minWidth:160,
+              ? (isDark?"#00ccff50":"#0050cc50")
+              : (isDark?"#ffb80050":"#8a500050")}`,
+            borderRadius:9, padding:"11px 15px",
+            backdropFilter:"blur(14px)",
+            pointerEvents:"none", minWidth:170,
           }}>
             <div style={{
-              fontSize:12, fontWeight:700,
+              fontSize:12,fontWeight:700,marginBottom:8,
               color: hoveredNode.type==="city"
                 ? (isDark?"#00ccff":"#0050cc")
                 : (isDark?"#ffb800":"#8a5000"),
               fontFamily:"'Inter',sans-serif",
-              marginBottom:6,
-              display:"flex", alignItems:"center", gap:6,
+              display:"flex",alignItems:"center",gap:6,
             }}>
-              {hoveredNode.type === "city" ? "🏙" : "⚠"} {hoveredNode.label}
+              {hoveredNode.type==="city" ? "🏙" : "⚠"} {hoveredNode.label}
             </div>
             {[
-              ["Type",    hoveredNode.type === "city" ? "City node" : "Issue node"],
-              ["Reports", hoveredNode.weight],
+              ["Type",        hoveredNode.type==="city" ? "City node" : "Issue node"],
+              ["Reports",     hoveredNode.weight],
               ["Connections", edgesRef.current.filter(
-                e => e.from === hoveredNode.id || e.to === hoveredNode.id
+                e => e.from===hoveredNode.id || e.to===hoveredNode.id
               ).length],
             ].map(([k,v]) => (
               <div key={k} style={{display:"flex",justifyContent:"space-between",
-                gap:16,fontSize:11,marginBottom:3}}>
+                gap:18,fontSize:11,marginBottom:3}}>
                 <span style={{color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>{k}</span>
                 <span style={{color:t.txt,fontFamily:"'DM Mono',monospace",fontWeight:600}}>{v}</span>
               </div>
@@ -1007,31 +980,36 @@ function KnowledgeGraph({ data, isDark }) {
 
         {/* Legend */}
         <div style={{
-          position:"absolute", bottom:16, right:12,
-          background: isDark ? "rgba(4,10,22,0.88)" : "rgba(255,255,255,0.92)",
-          border:`1px solid ${t.border}`,
-          borderRadius:6, padding:"8px 12px",
-          backdropFilter:"blur(8px)",
-          display:"flex", flexDirection:"column", gap:6,
+          position:"absolute", bottom:14, right:14,
+          background: isDark?"rgba(4,10,22,0.88)":"rgba(255,255,255,0.92)",
+          border:`1px solid ${t.border}`, borderRadius:7,
+          padding:"9px 13px", backdropFilter:"blur(10px)",
+          display:"flex", flexDirection:"column", gap:7,
         }}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:12,height:12,borderRadius:"50%",
-              background: isDark?"rgba(0,200,255,.2)":"rgba(0,80,200,.15)",
-              border:`1.5px solid ${isDark?"#00ccff":"#0050cc"}`}}/>
-            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>City</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:10,height:10,
-              background: isDark?"rgba(255,184,0,.2)":"rgba(160,100,0,.15)",
-              border:`1.5px solid ${isDark?"#ffb800":"#8a5000"}`,
-              transform:"rotate(45deg)"}}/>
-            <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>Issue</span>
-          </div>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <div style={{width:6,height:6,borderRadius:"50%",
-              background: isDark?"#00ff9d":"#007840"}}/>
-            <span style={{fontSize:11,color:t.txtMute,fontFamily:"'Inter',sans-serif"}}>Data flow</span>
-          </div>
+          {[
+            [true,  "circle",  isDark?"#00ccff":"#0050cc", "City"],
+            [false, "diamond", isDark?"#ffb800":"#8a5000",  "Issue"],
+            [null,  "dot",     isDark?"#00ff9d":"#007840",  "Data flow"],
+          ].map(([isCity, shape, col, label]) => (
+            <div key={label} style={{display:"flex",alignItems:"center",gap:8}}>
+              {shape === "circle" && (
+                <div style={{width:13,height:13,borderRadius:"50%",flexShrink:0,
+                  background:`${col}20`,border:`1.5px solid ${col}`}}/>
+              )}
+              {shape === "diamond" && (
+                <div style={{width:11,height:11,flexShrink:0,
+                  background:`${col}20`,border:`1.5px solid ${col}`,
+                  transform:"rotate(45deg)"}}/>
+              )}
+              {shape === "dot" && (
+                <div style={{width:8,height:8,borderRadius:"50%",
+                  flexShrink:0,background:col}}/>
+              )}
+              <span style={{fontSize:11,color:t.txt,fontFamily:"'Inter',sans-serif"}}>
+                {label}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>
