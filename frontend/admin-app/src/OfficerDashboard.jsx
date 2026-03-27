@@ -264,6 +264,22 @@ const CITY_GEO = {
   Warangal:         { lat:17.9689, lng:79.5941, zoom:12 },
 };
 
+const ALL_CITIES = Object.keys(CITY_GEO).sort((a, b) => a.localeCompare(b));
+
+function resolveCityName(city) {
+  if (!city) return null;
+  if (CITY_GEO[city] || WARD_GEOJSON[city]) return city;
+  return ALL_CITIES.find((name) => name.toLowerCase() === String(city).toLowerCase()) || null;
+}
+
+function getCityRiskScore(riskSummary, city) {
+  const resolved = resolveCityName(city);
+  if (!resolved) return 0;
+  if (typeof riskSummary?.[resolved] === "number") return riskSummary[resolved];
+  const match = Object.entries(riskSummary || {}).find(([name]) => name.toLowerCase() === resolved.toLowerCase());
+  return typeof match?.[1] === "number" ? match[1] : 0;
+}
+
 // Ward GeoJSON per city — real approximate boundaries as polygons
 const WARD_GEOJSON = {
   Mumbai: { type:"FeatureCollection", features:[
@@ -372,14 +388,9 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
     // Remove old markers
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = [];
-    Object.entries(riskSummary || {}).forEach(([city, score]) => {
-      let geo = CITY_GEO[city];
-      if (!geo) {
-        // Try case-insensitive match
-        const key = Object.keys(CITY_GEO).find(k => k.toLowerCase() === city.toLowerCase());
-        geo = key ? CITY_GEO[key] : null;
-      }
-      if (!geo) return; // truly unknown city
+    ALL_CITIES.forEach((city) => {
+      const geo = CITY_GEO[city];
+      const score = getCityRiskScore(riskSummary, city);
       const col = riskCol(score, isDark);
       const hexCol = col;
       const isDrilling = drillCity === city;
@@ -1023,7 +1034,7 @@ function AICivicCopilotPanel({ theme, isDark, riskSummary, events, alerts, predi
 // ══════════════════════════════════════════════════════════════════════════════
 function ComplaintManager({ events, loading, theme, isDark }) {
   const [complaints, setComplaints] = useState([]);
-  const [filter, setFilter]         = useState("all"); // all | pending | in_progress | resolved
+  const [filter, setFilter]         = useState("all"); // all | submitted | in_processing | action_taken
 
   // Sync from live events, preserve any local status overrides
   useEffect(() => {
@@ -1033,10 +1044,15 @@ function ComplaintManager({ events, loading, theme, isDark }) {
         prev.forEach(p => { overrides[p._key] = p.status; });
         return events.map((e, i) => {
           const key = e.id || e._id || String(i);
+          const incomingStatus = String(e.status || "").toLowerCase();
+          const normalizedStatus =
+            incomingStatus === "resolved" || incomingStatus === "completed" ? "action_taken" :
+            incomingStatus === "in_review" || incomingStatus === "in_progress" || incomingStatus === "processing" ? "in_processing" :
+            "submitted";
           return {
             ...e,
             _key:   key,
-            status: overrides[key] || e.status || "submitted",
+            status: overrides[key] || normalizedStatus,
           };
         });
       });
@@ -1048,39 +1064,36 @@ function ComplaintManager({ events, loading, theme, isDark }) {
   };
 
   const STATUS_FLOW = {
-    submitted:   { label:"Submitted",   color:"rgba(0,200,255,.8)",  next:"in_review",   nextLabel:"Start Review" },
-    in_review:   { label:"In Review",   color:"#ffb800",             next:"in_progress", nextLabel:"Mark In Progress" },
-    in_progress: { label:"In Progress", color:"#ff8c00",             next:"resolved",    nextLabel:"Mark Resolved ✓" },
-    resolved:    { label:"Resolved ✓",  color:"#00ff9d",             next:null,          nextLabel:null },
+    submitted:     { label:"Submitted",     color:"rgba(0,200,255,.8)", next:"in_processing", nextLabel:"Move to Processing" },
+    in_processing: { label:"In Processing", color:"#ffb800",            next:"action_taken",  nextLabel:"Mark Action Taken" },
+    action_taken:  { label:"Action Taken",  color:"#00ff9d",            next:null,            nextLabel:null },
   };
 
   const filtered = complaints.filter(c =>
-    filter === "all" ? true :
-    filter === "pending" ? ["submitted","in_review"].includes(c.status) :
-    c.status === filter
+    filter === "all" ? true : c.status === filter
   );
 
   const counts = {
-    all:         complaints.length,
-    pending:     complaints.filter(c => ["submitted","in_review"].includes(c.status)).length,
-    in_progress: complaints.filter(c => c.status === "in_progress").length,
-    resolved:    complaints.filter(c => c.status === "resolved").length,
+    all:           complaints.length,
+    submitted:     complaints.filter(c => c.status === "submitted").length,
+    in_processing: complaints.filter(c => c.status === "in_processing").length,
+    action_taken:  complaints.filter(c => c.status === "action_taken").length,
   };
 
   return (
     <div style={{marginTop:0}}>
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14,flexWrap:"wrap",gap:10}}>
         <div>
-          <div style={{fontSize:16,fontWeight:800,color:theme.txt}}>Complaint Management</div>
+          <div style={{fontSize:16,fontWeight:800,color:theme.txt}}>Citizen Reports</div>
           <div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Review and update status of citizen complaints · {complaints.length} total</div>
         </div>
         {/* Filter tabs */}
         <div style={{display:"flex",gap:6}}>
           {[
-            {k:"all",        label:`All (${counts.all})`},
-            {k:"pending",    label:`Pending (${counts.pending})`},
-            {k:"in_progress",label:`In Progress (${counts.in_progress})`},
-            {k:"resolved",   label:`Resolved (${counts.resolved})`},
+            {k:"all",           label:`All (${counts.all})`},
+            {k:"submitted",     label:`Submitted (${counts.submitted})`},
+            {k:"in_processing", label:`Processing (${counts.in_processing})`},
+            {k:"action_taken",  label:`Action Taken (${counts.action_taken})`},
           ].map(({k,label}) => (
             <button key={k} onClick={() => setFilter(k)} style={{
               padding:"6px 12px", borderRadius:6, fontSize:12, cursor:"pointer",
@@ -1159,11 +1172,11 @@ function ComplaintManager({ events, loading, theme, isDark }) {
                       padding:"8px 14px", borderRadius:8, fontSize:12, fontWeight:700,
                       cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
                       fontFamily:"'Inter',sans-serif", transition:"all .18s",
-                      background: st.next === "resolved"
+                      background: st.next === "action_taken"
                         ? "linear-gradient(135deg,rgba(0,255,157,.18),rgba(0,200,255,.1))"
                         : `${theme.accent}12`,
-                      border:`1px solid ${st.next === "resolved" ? "#00ff9d50" : theme.accent+"40"}`,
-                      color: st.next === "resolved" ? "#00ff9d" : theme.accent,
+                      border:`1px solid ${st.next === "action_taken" ? "#00ff9d50" : theme.accent+"40"}`,
+                      color: st.next === "action_taken" ? "#00ff9d" : theme.accent,
                     }}
                       onMouseEnter={e => e.currentTarget.style.opacity="0.8"}
                       onMouseLeave={e => e.currentTarget.style.opacity="1"}>
@@ -1183,8 +1196,8 @@ function ComplaintManager({ events, loading, theme, isDark }) {
 
                 {/* Progress bar */}
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
-                  {["submitted","in_review","in_progress","resolved"].map((s,idx) => {
-                    const steps = ["submitted","in_review","in_progress","resolved"];
+                  {["submitted","in_processing","action_taken"].map((s,idx) => {
+                    const steps = ["submitted","in_processing","action_taken"];
                     const curIdx = steps.indexOf(c.status);
                     const active = idx <= curIdx;
                     const stepCol = STATUS_FLOW[s]?.color || theme.accent;
@@ -1196,7 +1209,7 @@ function ComplaintManager({ events, loading, theme, isDark }) {
                           boxShadow: active && isDark ? `0 0 6px ${stepCol}` : "none",
                           transition:"all .3s",
                         }}/>
-                        {idx < 3 && <div style={{flex:1,height:2,background:active && idx<curIdx ? stepCol : theme.border,borderRadius:1,transition:"all .3s"}}/>}
+                        {idx < 2 && <div style={{flex:1,height:2,background:active && idx<curIdx ? stepCol : theme.border,borderRadius:1,transition:"all .3s"}}/>}
                       </div>
                     );
                   })}
@@ -1496,7 +1509,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                   // Dropdown replaces the GEO tag
                   <select
                     value={drillCity || ""}
-                    onChange={e => setDrillCity(e.target.value || null)}
+                    onChange={e => setDrillCity(resolveCityName(e.target.value) || null)}
                     style={{
                       background: theme.panel,
                       border: `1px solid ${theme.accent}40`,
@@ -1530,16 +1543,16 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                           fontFamily:"'Inter',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
                         ← Back to India
                       </button>
-                      {riskSummary[drillCity] !== undefined && (
+                      {resolveCityName(drillCity) && (
                         <div style={{display:"flex",alignItems:"center",gap:8}}>
                           <span style={{fontSize:12,color:theme.txtMute,fontFamily:"'Inter',sans-serif"}}>City Risk:</span>
-                          <span style={{fontSize:15,fontWeight:700,color:riskCol(riskSummary[drillCity],isDark),
-                            fontFamily:"'DM Mono',monospace"}}>{riskSummary[drillCity]}/100</span>
-                          <span style={{fontSize:11,color:riskCol(riskSummary[drillCity],isDark),
-                            background:`${riskCol(riskSummary[drillCity],isDark)}15`,
-                            border:`1px solid ${riskCol(riskSummary[drillCity],isDark)}30`,
+                          <span style={{fontSize:15,fontWeight:700,color:riskCol(getCityRiskScore(riskSummary, drillCity),isDark),
+                            fontFamily:"'DM Mono',monospace"}}>{getCityRiskScore(riskSummary, drillCity)}/100</span>
+                          <span style={{fontSize:11,color:riskCol(getCityRiskScore(riskSummary, drillCity),isDark),
+                            background:`${riskCol(getCityRiskScore(riskSummary, drillCity),isDark)}15`,
+                            border:`1px solid ${riskCol(getCityRiskScore(riskSummary, drillCity),isDark)}30`,
                             borderRadius:4,padding:"2px 8px",fontFamily:"'Inter',sans-serif",fontWeight:600}}>
-                            {riskLabel(riskSummary[drillCity])}
+                            {riskLabel(getCityRiskScore(riskSummary, drillCity))}
                           </span>
                         </div>
                       )}
@@ -1547,13 +1560,13 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                     {/* Ward SVG map */}
                     <CityWardMap
                       cityKey={drillCity}
-                      cityRisk={riskSummary[drillCity] || 55}
+                      cityRisk={getCityRiskScore(riskSummary, drillCity)}
                       isDark={isDark}
                     />
                     {/* Ward risk table below map */}
                     <div style={{marginTop:12,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
                       {WARD_GEOJSON[drillCity] && WARD_GEOJSON[drillCity].features.map(f => {
-                        const cityScore = riskSummary[drillCity] || 0;
+                        const cityScore = getCityRiskScore(riskSummary, drillCity) || 0;
                         const risk = cityScore > 0 ? Math.min(99, Math.max(5, cityScore + f.properties.offset)) : 0;
                         const col  = risk > 0 ? riskCol(risk, isDark) : "rgba(150,180,200,0.35)";
                         return (
@@ -1574,7 +1587,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                   <IndiaMap
                     riskSummary={riskSummary}
                     isDark={isDark}
-                    onCitySelect={city => setDrillCity((WARD_GEOJSON[city] && riskSummary[city] !== undefined) ? city : null)}
+                    onCitySelect={city => setDrillCity(resolveCityName(city))}
                     drillCity={drillCity}
                   />
                 )}

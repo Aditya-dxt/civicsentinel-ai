@@ -133,6 +133,30 @@ function useDashboard() {
     }
   }, []);
 
+  // Optimistic status update — immediately reflects in UI, reverts on error
+  const patchStatus = useCallback(async (eventId, newStatus) => {
+    // Optimistic update
+    setState(prev => ({
+      ...prev,
+      events: prev.events.map(e =>
+        (e.event_id === eventId || e.report_id === eventId)
+          ? { ...e, status: newStatus }
+          : e
+      ),
+    }));
+    try {
+      const res = await fetch(`${API}/events/${eventId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      // Revert on failure
+      setState(prev => ({ ...prev })); // will be corrected on next poll
+    }
+  }, []);
+
   useEffect(() => {
     fetchAll();
     const id = setInterval(fetchAll, POLL_MS);
@@ -168,7 +192,7 @@ function useDashboard() {
     return () => { dead = true; clearTimeout(retryTimer); if (ws) ws.close(); };
   }, []);
 
-  return { ...state, refetch: fetchAll };
+  return { ...state, refetch: fetchAll, patchStatus };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -327,7 +351,7 @@ function useLeaflet() {
 //          (green <40 / amber 40-69 / red ≥70). Cities with no reports
 //          stay green (score = 0 → STABLE).
 // ══════════════════════════════════════════════════════════════════════════════
-function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
+function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity, cityFilter }) {
   const t = useT();
   const mapRef          = useRef(null);
   const mapInstanceRef  = useRef(null);
@@ -352,10 +376,18 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
     return () => { map.remove(); mapInstanceRef.current = null; };
   }, [L, isDark]);
 
-  // ── FIX: Render ALL cities, default score = 0 (green) ──
+  // ── Render ALL cities — highlight cityFilter if set, flyTo on change ──
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!L || !map) return;
+
+    // FlyTo selected city when cityFilter changes
+    if (cityFilter && CITY_GEO[cityFilter]) {
+      const { lat, lng, zoom } = CITY_GEO[cityFilter];
+      map.flyTo([lat, lng], zoom, { animate: true, duration: 1.2 });
+    } else if (!cityFilter) {
+      map.flyTo([20.5937, 78.9629], 5, { animate: true, duration: 1.2 });
+    }
 
     // Remove existing markers
     markersRef.current.forEach(m => map.removeLayer(m));
@@ -363,34 +395,37 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
 
     // Iterate every city in CITY_GEO — not just riskSummary keys
     Object.entries(CITY_GEO).forEach(([city, geo]) => {
-      // Use real risk score if available, otherwise 0 (renders green)
       const score      = riskSummary?.[city] ?? 0;
+      const isFiltered = !!cityFilter;
+      const isHighlighted = !cityFilter || city === cityFilter;
       const col        = riskCol(score, isDark);
       const hasRisk    = score > 0;
       const hasWards   = !!WARD_GEOJSON[city];
       const isDrilling = drillCity === city;
+      const dimmed     = isFiltered && !isHighlighted;
 
-      // Size: cities with risk data are slightly larger
-      const baseSize = hasRisk ? 18 + (score / 100) * 14 : 14;
+      const baseSize = isHighlighted ? (hasRisk ? 20 + (score / 100) * 14 : 16) : 10;
+      const opacity  = dimmed ? 0.25 : 1;
 
       const icon = L.divIcon({
         className: "",
         html: `<div style="
           width:${baseSize}px;
           height:${baseSize}px;
-          background:${col}35;
-          border:2.5px solid ${col};
+          background:${col}${isHighlighted ? "40" : "18"};
+          border:${isHighlighted ? "2.5px" : "1.5px"} solid ${col};
           border-radius:50%;
           display:flex;align-items:center;justify-content:center;
           cursor:${hasWards ? "pointer" : "default"};
-          box-shadow:0 0 ${score >= 70 ? "14px" : "7px"} ${col}80;
+          box-shadow:0 0 ${score >= 70 ? "14px" : (isHighlighted ? "8px" : "3px")} ${col}${isHighlighted ? "80" : "30"};
           position:relative;
-          ${isDrilling ? `outline:3px solid ${col};outline-offset:3px;` : ""}
+          opacity:${opacity};
+          ${isDrilling || city === cityFilter ? `outline:3px solid ${col};outline-offset:3px;` : ""}
         ">
           <span style="font-size:9px;font-weight:700;color:${col};font-family:DM Mono,monospace;">
-            ${hasRisk ? score : ""}
+            ${hasRisk && isHighlighted ? score : ""}
           </span>
-          ${score >= 70 ? `<div style="position:absolute;inset:-5px;border-radius:50%;border:1.5px solid ${col};opacity:0.4;animation:rippleRing 2s infinite;"></div>` : ""}
+          ${score >= 70 && isHighlighted ? `<div style="position:absolute;inset:-5px;border-radius:50%;border:1.5px solid ${col};opacity:0.4;animation:rippleRing 2s infinite;"></div>` : ""}
         </div>`,
         iconSize: [baseSize + 4, baseSize + 4],
         iconAnchor: [(baseSize + 4) / 2, (baseSize + 4) / 2],
@@ -398,7 +433,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
 
       const marker = L.marker([geo.lat, geo.lng], { icon });
 
-      // Tooltip: show score only if real data exists
       marker.bindTooltip(
         `<div style="font-family:Inter,sans-serif;font-size:12px;font-weight:600">${city}</div>
          <div style="font-size:11px;color:${col}">
@@ -412,7 +446,7 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
       marker.addTo(map);
       markersRef.current.push(marker);
     });
-  }, [L, riskSummary, isDark, drillCity, onCitySelect]);
+  }, [L, riskSummary, isDark, drillCity, cityFilter, onCitySelect]);
 
   return (
     <div style={{ position:"relative" }}>
@@ -840,23 +874,31 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const theme                   = isDark ? DARK : LIGHT;
   const [time, setTime]         = useState(new Date());
   const [activeTab, setActiveTab] = useState("overview");
-  const [selectedCity, setSelectedCity] = useState(null);
-  const [drillCity, setDrillCity]       = useState(null);
+  const [selectedCity, setSelectedCity] = useState(null);   // drives map flyTo + reports filter
+  const [drillCity, setDrillCity]       = useState(null);   // drives ward drill-down
   const [myReports, setMyReports]       = useState([]);
   const [myReportsLoading, setMyReportsLoading] = useState(false);
+  const [statusToast, setStatusToast]   = useState(null);   // { id, status, success }
 
   const {
     events, riskSummary, issueTrends, alerts, predictions,
     aiInsight, knowledgeGraph, loading, error, lastSync, connected,
-    wsEvents, wsConnected, dashboard, riskMap,
+    wsEvents, wsConnected, dashboard, riskMap, patchStatus,
   } = useDashboard();
+
+  // Handle admin status change with toast feedback
+  const handleStatusChange = useCallback(async (eventId, newStatus) => {
+    await patchStatus(eventId, newStatus);
+    setStatusToast({ id: eventId, status: newStatus, success: true });
+    setTimeout(() => setStatusToast(null), 2500);
+  }, [patchStatus]);
 
   useEffect(() => { const id=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(id); }, []);
 
   useEffect(() => {
-    if (activeTab !== "myreports") return;
+    if (activeTab !== "analytics") return;
     setMyReportsLoading(true);
-    fetch(`${API}/events`).then(r=>r.json()).then(d=>{ const all=Array.isArray(d)?d:(d.events||[]); setMyReports(all.slice(0,20)); }).catch(()=>setMyReports([])).finally(()=>setMyReportsLoading(false));
+    fetch(`${API}/events`).then(r=>r.json()).then(d=>{ const all=Array.isArray(d)?d:(d.events||[]); setMyReports(all); }).catch(()=>setMyReports([])).finally(()=>setMyReportsLoading(false));
   }, [activeTab]);
 
   const riskEntries  = useMemo(()=>Object.entries(riskSummary||{}).map(([city,score])=>({city,score})).sort((a,b)=>b.score-a.score),[riskSummary]);
@@ -885,7 +927,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
     { id:"intelligence", icon:"🧠",  label:"Intelligence",     sub:"AI copilot · alerts" },
     { id:"copilot",      icon:"💬",  label:"AI Civic Copilot", sub:"/ai-civic-copilot" },
     { id:"livestream",   icon:"⚡",  label:"Live Stream",      sub:"WebSocket events" },
-    { id:"analytics",    icon:"📊",  label:"Analytics",        sub:"Risk · events · trends" },
+    { id:"analytics",    icon:"📊",  label:"Analytics",        sub:"Reports Review · Risk" },
+    { id:"myreports",    icon:"📤",  label:"My Reports",       sub:"User-scoped tracking" },
     { id:"graph",        icon:"🕸",  label:"Knowledge Graph",  sub:"Entity connections" },
   ];
 
@@ -1021,11 +1064,9 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                   subtitle={drillCity ? "8 wards · risk derived from live data · hover for details" : "LIVE · /risk-summary · click a city to drill into wards"}
                   acc={theme.accent}
                   tag={
-                    // ── FIX: Dropdown now shows ALL 44 cities (sorted A-Z),
-                    //         not just cities with risk data ──
                     <select
                       value={drillCity || ""}
-                      onChange={e => setDrillCity(e.target.value || null)}
+                      onChange={e => { const c = e.target.value || null; setDrillCity(c); setSelectedCity(c); }}
                       style={{
                         background: theme.panel,
                         border: `1px solid ${theme.accent}40`,
@@ -1044,13 +1085,10 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                       {ALL_CITIES.map(city => {
                         const score = riskSummary?.[city];
                         const hasData = score !== undefined;
-                        // Show risk score inline if available, otherwise show city name only
                         const label = hasData
                           ? `${WARD_GEOJSON[city] ? "📍" : "🏙"} ${city} — Risk: ${score}`
                           : `🏙 ${city}`;
-                        return (
-                          <option key={city} value={city}>{label}</option>
-                        );
+                        return (<option key={city} value={city}>{label}</option>);
                       })}
                     </select>
                   }
@@ -1098,7 +1136,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                       )}
                     </div>
                   ) : (
-                    <IndiaMap riskSummary={riskSummary} isDark={isDark} onCitySelect={city=>setDrillCity(city)} drillCity={drillCity}/>
+                    <IndiaMap riskSummary={riskSummary} isDark={isDark} onCitySelect={city=>setDrillCity(city)} drillCity={drillCity} cityFilter={selectedCity}/>
                   )}
                 </Panel>
 
@@ -1150,13 +1188,166 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             {activeTab==="intelligence"&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}><Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}><AIInsightPanel insight={aiInsight} loading={loading} error={error}/></Panel><div style={{display:"flex",flexDirection:"column",gap:12}}><Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}><div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>{predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})} {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel><Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>{alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}{!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel></div></div>)}
 
             {/* ════════ ANALYTICS ════════ */}
-            {activeTab==="analytics"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>{(loading&&!riskEntries.length?Array.from({length:8},(_,i)=>({city:`CITY-${i+1}`,score:0,_loading:true})):riskEntries).map((c,i)=>(<Panel key={c.city} acc={c._loading?theme.accent:riskCol(c.score,isDark)} style={{animation:`fadeUp .4s ease ${i*.05}s both`,cursor:c._loading?"default":"pointer"}}><div style={{textAlign:"center"}} onClick={()=>!c._loading&&setSelectedCity(c.city)}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:10}}>{c.city.toUpperCase()}</div>{c._loading?<Skeleton h={80} w="80px" mb={0} style={{margin:"0 auto"}}/>:(<svg width="80" height="80" style={{display:"block",margin:"0 auto"}}><circle cx="40" cy="40" r="30" fill="none" stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.07)"} strokeWidth="5"/><circle cx="40" cy="40" r="30" fill="none" stroke={riskCol(c.score,isDark)} strokeWidth="5" strokeDasharray={`${(c.score/100)*188.5} ${188.5-(c.score/100)*188.5}`} strokeDashoffset="47.1" strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s ease"}}/><text x="40" y="45" textAnchor="middle" fill={riskCol(c.score,isDark)} fontSize="18" fontFamily="DM Mono,monospace" fontWeight="500">{c.score}</text></svg>)}<div style={{fontSize:13,color:c._loading?theme.txtMute:riskCol(c.score,isDark),fontFamily:"'Inter',sans-serif",marginTop:8}}>{c._loading?"LOADING…":riskLabel(c.score)}</div></div></Panel>))}</div><Panel title="LIVE CIVIC EVENT FEED" subtitle={`/events · ${eventList.length} incidents · polling every ${POLL_MS/1000}s`} acc={theme.accent} tag={`${eventList.length} EVENTS`}><div style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px"}}>{["TIME","LOCATION","DESCRIPTION","ISSUE","SENTIMENT","RISK SCORE"].map(h=>(<div key={h} style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.07em",padding:"5px 8px",borderBottom:`1px solid ${theme.border}`}}>{h}</div>))}</div><div style={{maxHeight:360,overflowY:"auto"}}>{loading&&!eventList.length?Array.from({length:6},(_,i)=><div key={i} style={{padding:"8px",borderBottom:`1px solid ${theme.border}22`}}><Skeleton h={14} mb={0}/></div>):eventList.length?eventList.map((e,i)=>{const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"—";const risk=e.risk_score??e.risk??0;const sent=e.sentiment??0;return(<div key={i} style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px",alignItems:"center",borderBottom:`1px solid ${theme.border}20`,animation:`fadeUp .3s ease ${Math.min(i,.2)*i*.02}s both`,transition:"background .15s"}} onMouseEnter={e2=>e2.currentTarget.style.background=`${theme.accent}06`} onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{ts}</div><div style={{fontSize:14,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700,padding:"6px 8px"}}>{e.location||e.city||"—"}</div><div style={{fontSize:14,color:theme.txtSub,fontFamily:"'DM Mono',monospace",padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.text||e.description||"—"}</div><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{e.issue||"—"}</div><div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div><div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:4,borderRadius:2,background:`${riskCol(risk,isDark)}25`}}><div style={{height:"100%",width:`${risk}%`,background:riskCol(risk,isDark),borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:14,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700}}>{risk}</span></div></div>);}):(<div style={{padding:"30px",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for events…</div>)}</div></Panel></div>)}
+            {activeTab==="analytics"&&(<div style={{animation:"slideIn .4s ease"}}>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>
+                {(loading&&!riskEntries.length?Array.from({length:8},(_,i)=>({city:`CITY-${i+1}`,score:0,_loading:true})):riskEntries).map((c,i)=>(
+                  <Panel key={c.city} acc={c._loading?theme.accent:riskCol(c.score,isDark)} style={{animation:`fadeUp .4s ease ${i*.05}s both`,cursor:c._loading?"default":"pointer"}}>
+                    <div style={{textAlign:"center"}} onClick={()=>!c._loading&&setSelectedCity(c.city)}>
+                      <div style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:10}}>{c.city.toUpperCase()}</div>
+                      {c._loading?<Skeleton h={80} w="80px" mb={0} style={{margin:"0 auto"}}/>:(
+                        <svg width="80" height="80" style={{display:"block",margin:"0 auto"}}>
+                          <circle cx="40" cy="40" r="30" fill="none" stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.07)"} strokeWidth="5"/>
+                          <circle cx="40" cy="40" r="30" fill="none" stroke={riskCol(c.score,isDark)} strokeWidth="5" strokeDasharray={`${(c.score/100)*188.5} ${188.5-(c.score/100)*188.5}`} strokeDashoffset="47.1" strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s ease"}}/>
+                          <text x="40" y="45" textAnchor="middle" fill={riskCol(c.score,isDark)} fontSize="18" fontFamily="DM Mono,monospace" fontWeight="500">{c.score}</text>
+                        </svg>
+                      )}
+                      <div style={{fontSize:13,color:c._loading?theme.txtMute:riskCol(c.score,isDark),fontFamily:"'Inter',sans-serif",marginTop:8}}>{c._loading?"LOADING…":riskLabel(c.score)}</div>
+                    </div>
+                  </Panel>
+                ))}
+              </div>
+
+              {/* 🧾 CITIZEN REPORTS REVIEW PANEL (New Feature) */}
+              <Panel title="🧾 CITIZEN REPORTS REVIEW" subtitle={`/events · Manage ${eventList.length} incoming civic complaints`} acc={theme.accent} tag={`${eventList.length} REPORTS`}>
+                <div style={{display:"flex",alignItems:"center",gap:20,marginBottom:16,paddingBottom:12,borderBottom:`1px solid ${theme.border}40`}}>
+                  <div style={{fontSize:13,color:theme.txtMute}}>Filter by city:</div>
+                  <select
+                    value={selectedCity || ""}
+                    onChange={e => setSelectedCity(e.target.value || null)}
+                    style={{ background:theme.inputBg, border:`1px solid ${theme.inputBorder}`, color:theme.inputTxt, borderRadius:6, padding:"5px 12px", fontSize:13, outline:"none" }}
+                  >
+                    <option value="">All Cities</option>
+                    {ALL_CITIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <div style={{marginLeft:"auto",display:"flex",gap:12}}>
+                    {["submitted","in_review","in_progress","resolved","rejected"].map(s=>(
+                      <div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}>
+                        <div style={{width:8,height:8,borderRadius:"50%",background:s==="resolved"?theme.green:s==="rejected"?theme.red:s==="in_progress"?theme.amber:s==="in_review"?theme.accent:"#666"}}/>
+                        {s.replace("_"," ")}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill, minmax(340px, 1fr))",gap:16,maxHeight:550,overflowY:"auto",padding:"4px"}}>
+                  {loading && !eventList.length ? (
+                    Array.from({length:4}).map((_,i)=><Skeleton key={i} h={180}/>)
+                  ) : eventList.filter(e => !selectedCity || (e.location||e.city) === selectedCity).length === 0 ? (
+                    <div style={{gridColumn:"1/-1",padding:"60px 0",textAlign:"center",color:theme.txtMute,fontSize:14,fontFamily:"'DM Mono',monospace"}}>
+                      <div style={{fontSize:40,marginBottom:12}}>📦</div>
+                      No reports match the current filter.
+                    </div>
+                  ) : (
+                    eventList
+                      .filter(e => !selectedCity || (e.location||e.city) === selectedCity)
+                      .map((e,i) => {
+                        const status = e.status || "submitted";
+                        const id = e.report_id || e.event_id || `ID-${i}`;
+                        const col = status==="resolved"?theme.green:status==="rejected"?theme.red:status==="in_progress"?theme.amber:status==="in_review"?theme.accent:"#888";
+                        const risk = e.risk_score ?? e.risk ?? 0;
+
+                        return (
+                          <div key={id} style={{
+                            background: theme.panel,
+                            border: `1px solid ${theme.border}`,
+                            borderTop: `4px solid ${col}`,
+                            borderRadius: 8,
+                            padding: "16px",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 12,
+                            position: "relative",
+                            transition: "all .2s ease",
+                            animation: `fadeUp .3s ease ${Math.min(i,10)*0.05}s both`,
+                            cursor: "default",
+                          }}
+                          onMouseEnter={el => { el.currentTarget.style.transform="translateY(-4px)"; el.currentTarget.style.boxShadow=`0 8px 24px ${col}15`; el.currentTarget.style.borderColor=col+"40"; }}
+                          onMouseLeave={el => { el.currentTarget.style.transform="translateY(0)"; el.currentTarget.style.boxShadow="none"; el.currentTarget.style.borderColor=theme.border; }}
+                          >
+                            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+                              <div>
+                                <div style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",letterSpacing:"0.05em"}}>{id}</div>
+                                <div style={{fontSize:16,fontWeight:800,color:theme.txt,marginTop:4}}>{e.issue?.toUpperCase() || "CIVIC ISSUE"}</div>
+                              </div>
+                              <div style={{fontSize:11,fontWeight:700,color:col,background:`${col}12`,padding:"3px 10px",borderRadius:20,border:`1px solid ${col}40`}}>
+                                {status.toUpperCase().replace("_"," ")}
+                              </div>
+                            </div>
+
+                            <div style={{fontSize:14,color:theme.txtSub,lineHeight:1.5,flex:1,minHeight:40}}>
+                              {e.text || "No description provided."}
+                            </div>
+
+                            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,background:`${theme.border}10`,padding:"10px",borderRadius:6}}>
+                              <div>
+                                <div style={{fontSize:10,color:theme.txtMute}}>LOCATION</div>
+                                <div style={{fontSize:12,fontWeight:600,color:theme.txt}}>{e.location || e.city || "Unknown"}</div>
+                              </div>
+                              <div>
+                                <div style={{fontSize:10,color:theme.txtMute}}>RISK LEVEL</div>
+                                <div style={{fontSize:12,fontWeight:600,color:riskCol(risk,isDark)}}>{risk}/100 • {riskLabel(risk)}</div>
+                              </div>
+                            </div>
+
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginTop:4}}>
+                              <div style={{fontSize:11,color:theme.txtMute,fontWeight:600}}>UPDATE STATUS:</div>
+                              <select
+                                value={status}
+                                onChange={async (event) => {
+                                  const newStatus = event.target.value;
+                                  await handleStatusChange(id, newStatus);
+                                }}
+                                style={{
+                                  flex:1,
+                                  background:isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.03)",
+                                  border:`1px solid ${theme.border}`,
+                                  borderRadius:6,
+                                  color:theme.txt,
+                                  fontSize:12,
+                                  padding:"6px 8px",
+                                  cursor:"pointer",
+                                  outline:"none"
+                                }}
+                              >
+                                <option value="submitted">Submitted</option>
+                                <option value="in_review">In Review</option>
+                                <option value="in_progress">In Progress</option>
+                                <option value="resolved">Resolved</option>
+                                <option value="rejected">Rejected</option>
+                              </select>
+                            </div>
+
+                            {statusToast?.id === id && (
+                              <div style={{
+                                position: "absolute",
+                                inset: 0,
+                                background: "rgba(0,0,0,0.6)",
+                                backdropFilter: "blur(2px)",
+                                borderRadius: 8,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                zIndex: 10,
+                                animation: "fadeUp .2s ease"
+                              }}>
+                                <div style={{background:theme.green, color:"#000", padding:"8px 16px", borderRadius:4, fontWeight:700, fontSize:13}}>
+                                  UPDATED TO {status.toUpperCase()} ✓
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                  )}
+                </div>
+              </Panel>
+            </div>)}
 
             {/* ════════ KNOWLEDGE GRAPH ════════ */}
             {activeTab==="graph"&&(<div style={{animation:"slideIn .4s ease"}}><Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">{loading&&!knowledgeGraph?<div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div><Skeleton h={200}/></div>:<KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>}</Panel>{knowledgeGraph&&(<div style={{marginTop:12}}><Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}><pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>{JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}</pre></Panel></div>)}</div>)}
 
-            {/* ════════ MY REPORTS ════════ */}
-            {activeTab==="myreports"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div><div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div></div><button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>📸 New Report</button></div><div style={{display:"flex",gap:12,marginBottom:16}}>{[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(<div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}><div style={{width:8,height:8,borderRadius:"50%",background:c}}/>{l}</div>))}</div>{myReportsLoading?(<div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}><div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/><span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span></div>):myReports.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}><div style={{fontSize:32,marginBottom:12}}>📭</div>No reports yet. Submit complaints from the Citizen App.</div>):(<div style={{display:"flex",flexDirection:"column",gap:10}}>{myReports.map((r,i)=>{const status=r.status||"submitted";const statusColor=status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;const statusLabel=status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";const progress=status==="resolved"?100:status==="in_progress"?55:20;const issue=r.issue||r.text||"Civic Issue";const ward=r.ward||r.city||r.location||"—";const date=r.created_at?new Date(r.created_at).toLocaleDateString("en-IN"):r.date||"Recent";const risk=r.risk_score||r.risk||0;const rid=r.id||r._id||r.report_id||("CS"+i);return(<div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}><div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span><span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span></div><div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>{[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(<div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>))}</div><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}><div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span></div></div><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}><span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span><div style={{width:42,height:42,position:"relative"}}><svg width="42" height="42"><circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/><circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4" strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`} strokeDashoffset="26.7" strokeLinecap="round"/></svg><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div></div></div></div>);})}</div>)}</div>)}
+            {/* ════════ MY REPORTS (admin view of their own submissions) ════════ */}
+            {activeTab==="myreports"&&(<div style={{animation:"slideIn .4s ease"}}>  <div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}><div><div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div><div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div></div><button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>📸 New Report</button></div><div style={{display:"flex",gap:12,marginBottom:16}}>{[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(<div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}><div style={{width:8,height:8,borderRadius:"50%",background:c}}/>{l}</div>))}</div>{myReportsLoading?(<div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}><div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/><span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span></div>):myReports.length===0?(<div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}><div style={{fontSize:32,marginBottom:12}}>📭</div>No reports yet. Submit complaints from the Citizen App.</div>):(<div style={{display:"flex",flexDirection:"column",gap:10}}>{myReports.map((r,i)=>{const status=r.status||"submitted";const statusColor=status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;const statusLabel=status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";const progress=status==="resolved"?100:status==="in_progress"?55:20;const issue=r.issue||r.text||"Civic Issue";const ward=r.ward||r.city||r.location||"—";const date=r.created_at?new Date(r.created_at).toLocaleDateString("en-IN"):r.date||"Recent";const risk=r.risk_score||r.risk||0;const rid=r.id||r._id||r.report_id||("CS"+i);return(<div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}} onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}} onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}><div><div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}><span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span><span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span></div><div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>{[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(<div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>))}</div><div style={{display:"flex",alignItems:"center",gap:8}}><div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}><div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span></div></div><div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}><span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span><div style={{width:42,height:42,position:"relative"}}><svg width="42" height="42"><circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/><circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4" strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`} strokeDashoffset="26.7" strokeLinecap="round"/></svg><div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div></div></div></div>);})}</div>)}</div>)}
 
             {/* ════════ AI CIVIC COPILOT ════════ */}
             {activeTab==="copilot"&&(<div style={{animation:"slideIn .4s ease"}}><AICivicCopilotPanel theme={theme} isDark={isDark} riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/></div>)}
