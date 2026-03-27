@@ -1,11 +1,12 @@
 # venv\Scripts\activate
 # uvicorn main:app --reload
 
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI, WebSocket, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import asyncio
 import os
+import httpx
 
 # Streaming
 from app.streaming.pipeline import process_event
@@ -48,7 +49,15 @@ class Complaint(BaseModel):
     text:     str
     user_id:  str = "anonymous"  # Firebase UID from citizen app
     ward:     str = "Unknown"    # Ward/suburb from reverse geocode
-    status:   str = "submitted"  # submitted | in_progress | resolved
+    status:   str = "submitted"  # submitted | in_review | in_progress | resolved
+    image:    str = ""           # base64 image (optional, stored for review panel)
+
+class DetectIssueRequest(BaseModel):
+    image_base64: str
+    city: str = "Unknown"
+
+class StatusUpdate(BaseModel):
+    status: str  # submitted | in_review | in_progress | resolved | rejected
 
 
 load_dotenv()
@@ -57,12 +66,16 @@ app = FastAPI(title="CivicSentinel AI")
 
 
 # ── CORS ────────────────────────────────────────────────────────
+# ── CORS (FIXED PROPERLY) ────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        "*"  # allows deployed frontend
+
+        # ✅ YOUR DEPLOYED FRONTENDS
+        "https://civicsentinel-admin.onrender.com",
+        "https://civicsentinel-ai-pszx.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -103,9 +116,114 @@ def get_event():
 
 
 # ── Get all events ────────────────────────────────────────────────
+# Supports optional ?user_id= filter to return only events for that user.
 @app.get("/events")
-def get_events():
+def get_events(
+    user_id: str = Query(None, description="Optional Firebase UID to filter events")
+):
+    if user_id and user_id.strip() and user_id.strip() != "anonymous":
+        filtered = [e for e in event_store if e.get("user_id") == user_id.strip()]
+        return {"events": filtered}
     return {"events": event_store}
+
+
+# ──────────────────────────────────────────────────────────────
+# NEW: POST /detect-issue
+# Proxies image + prompt to Claude vision API so the API key
+# stays server-side. Returns {category, confidence, severity}.
+# Falls back to mock data if ANTHROPIC_API_KEY is not set.
+# ──────────────────────────────────────────────────────────────
+@app.post("/detect-issue")
+async def detect_issue(data: DetectIssueRequest):
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+
+    prompt_text = """You are a civic issue detection AI. Analyze this photo and detect civic/infrastructure problems.
+Respond ONLY with valid JSON, no markdown:
+{
+  "isLegitimate": true or false,
+  "legitimacyReason": "brief reason if false",
+  "blurScore": 0.0-1.0,
+  "detectedObjects": ["list","of","objects"],
+  "issueCategory": "water|road|electricity|garbage|encroachment|crime|health|other",
+  "issueLabel": "short human-readable description",
+  "confidence": 0.0-1.0,
+  "severity": "low|medium|high",
+  "boundingBoxDescription": "where in the image the main issue is"
+}"""
+
+    if not api_key:
+        # Fallback mock — still useful for demo
+        import random
+        cats = ["road", "water", "garbage", "electricity"]
+        picked = random.choice(cats)
+        return {
+            "isLegitimate": random.random() > 0.08,
+            "legitimacyReason": "unclear image",
+            "blurScore": round(0.6 + random.random() * 0.38, 2),
+            "detectedObjects": [picked, "area"],
+            "issueCategory": picked,
+            "issueLabel": picked.capitalize() + " issue detected",
+            "confidence": round(0.72 + random.random() * 0.25, 2),
+            "severity": random.choice(["low", "medium", "high"]),
+            "boundingBoxDescription": "center",
+        }
+
+    # Strip data URL prefix if present
+    img_data = data.image_base64
+    if ";base64," in img_data:
+        img_data = img_data.split(";base64,")[1]
+
+    payload = {
+        "model": "claude-opus-4-5",
+        "max_tokens": 400,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg", "data": img_data}},
+                {"type": "text", "text": prompt_text},
+            ]
+        }]
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
+                json=payload,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            text = "".join(b.get("text", "") for b in result.get("content", []))
+            import json as _json, re
+            clean = re.sub(r"```json|```", "", text).strip()
+            return _json.loads(clean)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Claude API error: {str(e)}")
+
+
+# ──────────────────────────────────────────────────────────────
+# NEW: PATCH /events/{event_id}
+# Updates the status of a stored event.
+# Status flow: submitted → in_review → in_progress → resolved
+# ──────────────────────────────────────────────────────────────
+VALID_STATUSES = {"submitted", "in_review", "in_progress", "resolved", "rejected"}
+
+@app.patch("/events/{event_id}")
+def update_event_status(event_id: str, body: StatusUpdate):
+    if body.status not in VALID_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid status '{body.status}'. Must be one of: {', '.join(VALID_STATUSES)}"
+        )
+
+    # Search by event_id OR report_id (friendly ID)
+    for event in event_store:
+        if event.get("event_id") == event_id or event.get("report_id") == event_id:
+            event["status"] = body.status
+            return {"success": True, "event_id": event_id, "status": body.status, "event": event}
+
+    raise HTTPException(status_code=404, detail=f"Event '{event_id}' not found")
 
 
 # -----------------------------
@@ -229,14 +347,15 @@ async def report_complaint(data: Complaint):
 
     event = {
         "event_id":  str(uuid.uuid4()),
-        "report_id": friendly_id,            # FIX: stored + returned
+        "report_id": friendly_id,            # stored + returned
         "timestamp": datetime.utcnow().isoformat(),
         "location":  data.location,
         "issue":     data.issue,
         "text":      data.text,
-        "user_id":   data.user_id,           # FIX: user-scoped
-        "ward":      data.ward,              # FIX: for My Reports display
-        "status":    data.status,            # FIX: for progress bar
+        "user_id":   data.user_id,           # user-scoped
+        "ward":      data.ward,              # for My Reports display
+        "status":    data.status,            # for progress bar
+        "image":     data.image[:200] if data.image else "",  # thumbnail hint
     }
 
     processed = process_event(event, event_store)
