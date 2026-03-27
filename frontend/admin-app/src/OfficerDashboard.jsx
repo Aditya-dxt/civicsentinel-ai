@@ -105,7 +105,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight?query=summarize+civic+issues`).then(r => r.json()),
+        fetch(`${API}/ai-insight`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
@@ -645,13 +645,13 @@ function KnowledgeGraph({ data, isDark }) {
 
     // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
     // Strong repulsion + weak edge attraction → spreads evenly then stops
-    const REPEL    = 28000;   // much stronger push apart
-const ATTRACT  = 0.006;   // weaker pull together
-const DAMPING  = 0.72;
-const PADDING  = 90;
-const MIN_DIST = 140;     // enforced minimum gap
+    const REPEL   = 7000;
+    const ATTRACT = 0.018;
+    const DAMPING = 0.78;
+    const PADDING = 60;    // min distance from canvas edge
+    const MIN_DIST = 75;   // minimum node-to-node distance
 
-for (let step = 0; step < 500; step++) {  // more iterations to fully settle
+    for (let step = 0; step < 320; step++) {
       const cooling = 1 - step / 320; // cool down over time → less movement
 
       for (let i = 0; i < placed.length; i++) {
@@ -1026,11 +1026,9 @@ function AIInsightPanel({ insight, loading, error }) {
   const [localLoading, setLocalLoading] = useState(false);
 
   const fetchInsight = useCallback(async (q) => {
-  setLocalLoading(true);
-  try {
-    // Always send a default query — never call /ai-insight without one
-    const safeQuery = q || "summarize current civic issues and risk levels";
-    const url = `${API}/ai-insight?query=${encodeURIComponent(safeQuery)}`;
+    setLocalLoading(true);
+    try {
+      const url = q ? `${API}/ai-insight?query=${encodeURIComponent(q)}` : `${API}/ai-insight`;
       const res = await fetch(url);
       const d   = await res.json();
       setLocalResult(d);
