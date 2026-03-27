@@ -645,13 +645,13 @@ function KnowledgeGraph({ data, isDark }) {
 
     // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
     // Strong repulsion + weak edge attraction → spreads evenly then stops
-    const REPEL   = 7000;
-    const ATTRACT = 0.018;
-    const DAMPING = 0.78;
-    const PADDING = 60;    // min distance from canvas edge
-    const MIN_DIST = 75;   // minimum node-to-node distance
+    const REPEL    = 28000;   // much stronger push apart
+const ATTRACT  = 0.006;   // weaker pull together
+const DAMPING  = 0.72;
+const PADDING  = 90;
+const MIN_DIST = 140;     // enforced minimum gap
 
-    for (let step = 0; step < 320; step++) {
+for (let step = 0; step < 500; step++) {  // more iterations to fully settle
       const cooling = 1 - step / 320; // cool down over time → less movement
 
       for (let i = 0; i < placed.length; i++) {

@@ -168,14 +168,7 @@ function useDashboard() {
     return () => { dead = true; clearTimeout(retryTimer); if (ws) ws.close(); };
   }, []);
 
-  const updateEventStatus = useCallback((eventId, newStatus) => {
-    setState(prev => ({
-      ...prev,
-      events: prev.events.map(e => (e.event_id === eventId || e.report_id === eventId) ? { ...e, status: newStatus } : e)
-    }));
-  }, []);
-
-  return { ...state, refetch: fetchAll, updateEventStatus };
+  return { ...state, refetch: fetchAll };
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -334,7 +327,7 @@ function useLeaflet() {
 //          (green <40 / amber 40-69 / red ≥70). Cities with no reports
 //          stay green (score = 0 → STABLE).
 // ══════════════════════════════════════════════════════════════════════════════
-function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity, filterCity }) {
+function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
   const t = useT();
   const mapRef          = useRef(null);
   const mapInstanceRef  = useRef(null);
@@ -359,18 +352,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity, filterCity }) 
     return () => { map.remove(); mapInstanceRef.current = null; };
   }, [L, isDark]);
 
-  // Handle flyTo when filterCity changes
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!L || !map) return;
-    if (filterCity && CITY_GEO[filterCity]) {
-      const g = CITY_GEO[filterCity];
-      map.flyTo([g.lat, g.lng], g.zoom, { duration: 1.5 });
-    } else {
-      map.flyTo([20.5937, 78.9629], 5, { duration: 1.5 });
-    }
-  }, [L, filterCity]);
-
   // ── FIX: Render ALL cities, default score = 0 (green) ──
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -382,8 +363,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity, filterCity }) 
 
     // Iterate every city in CITY_GEO — not just riskSummary keys
     Object.entries(CITY_GEO).forEach(([city, geo]) => {
-      // If filtering, only show the selected city or skip others
-      if (filterCity && filterCity !== "all" && city !== filterCity) return;
       // Use real risk score if available, otherwise 0 (renders green)
       const score      = riskSummary?.[city] ?? 0;
       const col        = riskCol(score, isDark);
@@ -666,13 +645,13 @@ function KnowledgeGraph({ data, isDark }) {
 
     // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
     // Strong repulsion + weak edge attraction → spreads evenly then stops
-    const REPEL   = 7000;
-    const ATTRACT = 0.018;
-    const DAMPING = 0.78;
-    const PADDING = 60;    // min distance from canvas edge
-    const MIN_DIST = 75;   // minimum node-to-node distance
+    const REPEL    = 28000;   // much stronger push apart
+const ATTRACT  = 0.006;   // weaker pull together
+const DAMPING  = 0.72;
+const PADDING  = 90;
+const MIN_DIST = 140;     // enforced minimum gap
 
-    for (let step = 0; step < 320; step++) {
+for (let step = 0; step < 500; step++) {  // more iterations to fully settle
       const cooling = 1 - step / 320; // cool down over time → less movement
 
       for (let i = 0; i < placed.length; i++) {
@@ -1187,98 +1166,6 @@ function Skeleton({ h=16, w="100%", mb=8 }) {
   return <div style={{height:h,width:w,background:`${t.border}`,borderRadius:4,marginBottom:mb,animation:"skeletonPulse 1.4s ease infinite"}}/>;
 }
 
-function ReportCard({ report, theme, isDark, onStatusChange }) {
-  const status = report.status || "submitted";
-  const statusConfig = {
-    submitted:   { col: theme.accent, label: "Submitted", icon: "📤" },
-    in_review:   { col: theme.amber,  label: "In Review", icon: "🔍" },
-    in_progress: { col: theme.amber,  label: "In Progress", icon: "🛠" },
-    resolved:    { col: theme.green,  label: "Resolved", icon: "✅" },
-    rejected:    { col: theme.red,    label: "Rejected", icon: "❌" },
-  };
-
-  const current = statusConfig[status] || statusConfig.submitted;
-  const date = report.timestamp ? new Date(report.timestamp).toLocaleDateString("en-IN") : "Recent";
-
-  return (
-    <div style={{
-      background: theme.panel,
-      border: `1px solid ${theme.border}`,
-      borderLeft: `3px solid ${current.col}`,
-      borderRadius: 10,
-      padding: "16px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 12,
-      transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-      cursor: "default",
-      animation: "fadeUp 0.4s ease both",
-      position: "relative"
-    }}
-    onMouseEnter={e => {
-      e.currentTarget.style.transform = "translateY(-4px)";
-      e.currentTarget.style.boxShadow = `0 12px 24px -10px ${current.col}40`;
-      e.currentTarget.style.borderColor = `${current.col}60`;
-    }}
-    onMouseLeave={e => {
-      e.currentTarget.style.transform = "translateY(0)";
-      e.currentTarget.style.boxShadow = "none";
-      e.currentTarget.style.borderColor = theme.border;
-    }}
-    >
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <div style={{
-          width: 44, height: 44, borderRadius: 10, background: `${current.col}10`,
-          border: `1px solid ${current.col}30`, display: "flex", alignItems: "center",
-          justifyContent: "center", fontSize: 20, flexShrink: 0
-        }}>
-          {current.icon}
-        </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: theme.txt, marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {report.issue || "Civic Issue"}
-          </div>
-          <div style={{ fontSize: 12, color: theme.txtSub, lineHeight: 1.4, height: 34, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-            {report.text || report.description || "No description provided."}
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-        <div style={{ fontSize: 11, color: theme.txtMute, display: "flex", alignItems: "center", gap: 4 }}>
-          <span>📍</span> <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{report.location || report.city || "Unknown"}</span>
-        </div>
-        <div style={{ fontSize: 11, color: theme.txtMute, textAlign: "right", display: "flex", alignItems: "center", gap: 4, justifyContent: "flex-end" }}>
-          <span>📅</span> {date}
-        </div>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, paddingTop: 10, borderTop: `1px solid ${theme.border}30` }}>
-        <div style={{
-          fontSize: 10, background: `${current.col}12`, border: `1px solid ${current.col}30`,
-          borderRadius: 20, padding: "2px 10px", color: current.col, fontWeight: 700,
-          textTransform: "uppercase", letterSpacing: "0.02em"
-        }}>
-          {current.label}
-        </div>
-        <select
-          value={status}
-          onChange={(e) => onStatusChange(report.event_id || report.report_id, e.target.value)}
-          style={{
-            background: theme.inputBg, border: `1px solid ${theme.border}`, borderRadius: 4,
-            color: theme.txt, fontSize: 11, padding: "3px 6px", outline: "none", cursor: "pointer",
-            fontFamily: "'Inter', sans-serif"
-          }}
-        >
-          {["submitted", "in_review", "in_progress", "resolved", "rejected"].map(s => (
-            <option key={s} value={s} style={{ background: theme.panel, color: theme.txt }}>{s.replace("_", " ").toUpperCase()}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
-
 // ══════════════════════════════════════════════════════════════════════════════
 // AI CIVIC COPILOT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1368,14 +1255,13 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCity, setSelectedCity] = useState(null);
   const [drillCity, setDrillCity]       = useState(null);
-  const [selectedAnalyticsCity, setSelectedAnalyticsCity] = useState("all");
   const [myReports, setMyReports]       = useState([]);
   const [myReportsLoading, setMyReportsLoading] = useState(false);
 
   const {
     events, riskSummary, issueTrends, alerts, predictions,
     aiInsight, knowledgeGraph, loading, error, lastSync, connected,
-    wsEvents, wsConnected, dashboard, riskMap, updateEventStatus
+    wsEvents, wsConnected, dashboard, riskMap,
   } = useDashboard();
 
   useEffect(() => { const id=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(id); }, []);
@@ -1677,90 +1563,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             {activeTab==="intelligence"&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}><Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}><AIInsightPanel insight={aiInsight} loading={loading} error={error}/></Panel><div style={{display:"flex",flexDirection:"column",gap:12}}><Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}><div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>{predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})} {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel><Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>{alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}{!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel></div></div>)}
 
             {/* ════════ ANALYTICS ════════ */}
-            {activeTab === "analytics" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 16, animation: "fadeUp 0.5s ease" }}>
-                <Panel
-                  title="CITIZEN REPORTS REVIEW PANEL"
-                  subtitle="Interactive map sync · optimistic status management · real-time filtering"
-                  acc={theme.accent}
-                  tag={
-                    <select
-                      value={selectedAnalyticsCity}
-                      onChange={e => setSelectedAnalyticsCity(e.target.value)}
-                      style={{
-                        background: theme.panel, border: `1px solid ${theme.accent}40`,
-                        borderRadius: 6, color: theme.accent, fontSize: 12,
-                        fontFamily: "'Inter',sans-serif", fontWeight: 600,
-                        padding: "5px 12px", cursor: "pointer", outline: "none", minWidth: 160
-                      }}
-                    >
-                      <option value="all">🗺 All Cities</option>
-                      {ALL_CITIES.map(c => <option key={c} value={c}>🏙 {c}</option>)}
-                    </select>
-                  }
-                >
-                  <IndiaMap
-                    riskSummary={riskSummary}
-                    isDark={isDark}
-                    onCitySelect={city => setSelectedAnalyticsCity(city)}
-                    filterCity={selectedAnalyticsCity === "all" ? null : selectedAnalyticsCity}
-                  />
-                </Panel>
-
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 16 }}>
-                  {eventList
-                    .filter(e => selectedAnalyticsCity === "all" || (e.location || e.city || "").toLowerCase() === selectedAnalyticsCity.toLowerCase())
-                    .map((e, i) => (
-                      <ReportCard
-                        key={e.event_id || i}
-                        report={e}
-                        theme={theme}
-                        isDark={isDark}
-                        onStatusChange={async (id, status) => {
-                          updateEventStatus(id, status); // Optimistic Update
-                          try {
-                            const res = await fetch(`${API}/events/${id}`, {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ status })
-                            });
-                            if (!res.ok) throw new Error("Status update failed");
-                          } catch (err) {
-                            console.error("Failed to update status on server:", err);
-                            // Optional: restore old status if critical
-                          }
-                        }}
-                      />
-                    ))
-                  }
-                  {eventList.filter(e => selectedAnalyticsCity === "all" || (e.location || e.city || "").toLowerCase() === selectedAnalyticsCity.toLowerCase()).length === 0 && (
-                    <div style={{
-                      gridColumn: "1 / -1", padding: "80px 0", textAlign: "center",
-                      background: `${theme.border}10`, border: `1px dashed ${theme.border}`,
-                      borderRadius: 12, display: "flex", flexDirection: "column", alignItems: "center", gap: 12
-                    }}>
-                      <div style={{ fontSize: 48 }}>📋</div>
-                      <div>
-                        <div style={{ fontSize: 16, fontWeight: 700, color: theme.txt }}>No reports found</div>
-                        <div style={{ fontSize: 13, color: theme.txtMute, marginTop: 4 }}>Try selecting a different city or check back later.</div>
-                      </div>
-                      {selectedAnalyticsCity !== "all" && (
-                        <button
-                          onClick={() => setSelectedAnalyticsCity("all")}
-                          style={{
-                            background: `${theme.accent}14`, border: `1px solid ${theme.accent}40`,
-                            borderRadius: 6, color: theme.accent, padding: "8px 16px",
-                            fontSize: 13, fontWeight: 600, cursor: "pointer", marginTop: 8
-                          }}
-                        >
-                          Clear Filter
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {activeTab==="analytics"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>{(loading&&!riskEntries.length?Array.from({length:8},(_,i)=>({city:`CITY-${i+1}`,score:0,_loading:true})):riskEntries).map((c,i)=>(<Panel key={c.city} acc={c._loading?theme.accent:riskCol(c.score,isDark)} style={{animation:`fadeUp .4s ease ${i*.05}s both`,cursor:c._loading?"default":"pointer"}}><div style={{textAlign:"center"}} onClick={()=>!c._loading&&setSelectedCity(c.city)}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:10}}>{c.city.toUpperCase()}</div>{c._loading?<Skeleton h={80} w="80px" mb={0} style={{margin:"0 auto"}}/>:(<svg width="80" height="80" style={{display:"block",margin:"0 auto"}}><circle cx="40" cy="40" r="30" fill="none" stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.07)"} strokeWidth="5"/><circle cx="40" cy="40" r="30" fill="none" stroke={riskCol(c.score,isDark)} strokeWidth="5" strokeDasharray={`${(c.score/100)*188.5} ${188.5-(c.score/100)*188.5}`} strokeDashoffset="47.1" strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s ease"}}/><text x="40" y="45" textAnchor="middle" fill={riskCol(c.score,isDark)} fontSize="18" fontFamily="DM Mono,monospace" fontWeight="500">{c.score}</text></svg>)}<div style={{fontSize:13,color:c._loading?theme.txtMute:riskCol(c.score,isDark),fontFamily:"'Inter',sans-serif",marginTop:8}}>{c._loading?"LOADING…":riskLabel(c.score)}</div></div></Panel>))}</div><Panel title="LIVE CIVIC EVENT FEED" subtitle={`/events · ${eventList.length} incidents · polling every ${POLL_MS/1000}s`} acc={theme.accent} tag={`${eventList.length} EVENTS`}><div style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px"}}>{["TIME","LOCATION","DESCRIPTION","ISSUE","SENTIMENT","RISK SCORE"].map(h=>(<div key={h} style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.07em",padding:"5px 8px",borderBottom:`1px solid ${theme.border}`}}>{h}</div>))}</div><div style={{maxHeight:360,overflowY:"auto"}}>{loading&&!eventList.length?Array.from({length:6},(_,i)=><div key={i} style={{padding:"8px",borderBottom:`1px solid ${theme.border}22`}}><Skeleton h={14} mb={0}/></div>):eventList.length?eventList.map((e,i)=>{const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"—";const risk=e.risk_score??e.risk??0;const sent=e.sentiment??0;return(<div key={i} style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px",alignItems:"center",borderBottom:`1px solid ${theme.border}20`,animation:`fadeUp .3s ease ${Math.min(i,.2)*i*.02}s both`,transition:"background .15s"}} onMouseEnter={e2=>e2.currentTarget.style.background=`${theme.accent}06`} onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{ts}</div><div style={{fontSize:14,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700,padding:"6px 8px"}}>{e.location||e.city||"—"}</div><div style={{fontSize:14,color:theme.txtSub,fontFamily:"'DM Mono',monospace",padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.text||e.description||"—"}</div><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{e.issue||"—"}</div><div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div><div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:4,borderRadius:2,background:`${riskCol(risk,isDark)}25`}}><div style={{height:"100%",width:`${risk}%`,background:riskCol(risk,isDark),borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:14,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700}}>{risk}</span></div></div>);}):(<div style={{padding:"30px",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for events…</div>)}</div></Panel></div>)}
 
             {/* ════════ KNOWLEDGE GRAPH ════════ */}
             {activeTab==="graph"&&(<div style={{animation:"slideIn .4s ease"}}><Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">{loading&&!knowledgeGraph?<div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div><Skeleton h={200}/></div>:<KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>}</Panel>{knowledgeGraph&&(<div style={{marginTop:12}}><Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}><pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>{JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}</pre></Panel></div>)}</div>)}
