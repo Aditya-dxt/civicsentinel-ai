@@ -242,6 +242,8 @@ async def report_complaint(data: Complaint):
     processed = process_event(event, event_store)
 
     event_store.append(processed)
+    from app.streaming.stream_service import _save
+    _save(event_store)
 
     # Bumped from 50 → 200 so demo reports survive longer on free tier
     if len(event_store) > 200:
