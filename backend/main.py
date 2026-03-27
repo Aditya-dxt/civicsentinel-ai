@@ -230,7 +230,7 @@ def update_event_status(event_id: str, body: StatusUpdate):
 # LLM Powered AI Insight
 # -----------------------------
 @app.get("/ai-insight")
-def ai_insight(query: str):
+def ai_insight(query: str = "civic issues summary"):
     ai_analysis  = retriever.query(query)
     latest_event = event_store[-1] if event_store else None
     return {
