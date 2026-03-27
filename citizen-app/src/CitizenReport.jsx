@@ -135,22 +135,35 @@ function StepBar({ current, lang = "en" }) {
   const STEP_LABELS = getStepLabels(lang);
   const idx = STEPS.indexOf(current);
   return (
-    <div style={{ display:"flex",alignItems:"center",justifyContent:"center",marginBottom:22,gap:0 }}>
-      {STEPS.filter(s => s !== "done").map((s, i) => {
-        const done   = idx > i;
-        const active = current === s;
-        return (
-          <div key={s} style={{ display:"flex",alignItems:"center" }}>
-            <div style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:3 }}>
-              <div style={{ width:34,height:34,borderRadius:"50%",display:"flex",alignItems:"center",justifyContent:"center",background:done?"#00ff9d":active?"rgba(0,200,255,.22)":"rgba(255,255,255,.05)",border:`2px solid ${done?"#00ff9d":active?"#00ccff":"rgba(255,255,255,.1)"}`,fontSize:done?13:15,transition:"all .3s",boxShadow:active?"0 0 14px rgba(0,200,255,.38)":"none" }}>
+    <div style={{ position:"relative",marginBottom:22,padding:"0 10px" }}>
+      {/* Progress Track Background */}
+      <div style={{ position:"absolute",top:17,left:30,right:30,height:2,background:"rgba(255,255,255,.07)",zIndex:0 }}/>
+      {/* Filled Progress Track */}
+      <div style={{ position:"absolute",top:17,left:30,width:`${(idx/4)*100}%`,maxWidth:"calc(100% - 60px)",height:2,background:"#00ff9d",boxShadow:"0 0 8px #00ff9d60",transition:"width .4s ease",zIndex:1 }}/>
+
+      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",position:"relative",zIndex:2 }}>
+        {STEPS.filter(s => s !== "done").map((s, i) => {
+          const done   = idx > i;
+          const active = current === s;
+          return (
+            <div key={s} style={{ display:"flex",flexDirection:"column",alignItems:"center",gap:5 }}>
+              <div style={{
+                width:34,height:34,borderRadius:"50%",
+                display:"flex",alignItems:"center",justifyContent:"center",
+                background:done?"#00ff9d":active?"#0a192f":"rgba(255,255,255,.05)",
+                border:`2px solid ${done?"#00ff9d":active?"#00ccff":"rgba(255,255,255,.1)"}`,
+                fontSize:done?13:15,
+                transition:"all .3s",
+                boxShadow:active?"0 0 14px rgba(0,200,255,.38)":done?"0 0 10px rgba(0,255,157,.2)":"none",
+                color:done?"#020609":active?"#00ccff":"rgba(255,255,255,.3)"
+              }}>
                 {done ? "✓" : STEP_ICONS[s]}
               </div>
-              <span style={{ fontSize:9,color:active?"#00ccff":done?"#00ff9d":"rgba(255,255,255,.22)",fontFamily:"'Inter',sans-serif",fontWeight:active||done?700:400 }}>{STEP_LABELS[s]}</span>
+              <span style={{ fontSize:9,color:active?"#00ccff":done?"#00ff9d":"rgba(255,255,255,.22)",fontFamily:"'Inter',sans-serif",fontWeight:active||done?700:400,textTransform:"uppercase",letterSpacing:"0.02em" }}>{STEP_LABELS[s]}</span>
             </div>
-            {i < 4 && <div style={{ width:26,height:2,background:done?"rgba(0,255,157,.3)":"rgba(255,255,255,.07)",margin:"0 3px",marginBottom:18,flexShrink:0 }}/>}
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -170,13 +183,27 @@ function DetectionOverlay({ yolo }) {
   const col   = yolo.confidence > 0.75 ? "#00ff9d" : yolo.confidence > 0.5 ? "#ffb800" : "#ff6060";
   const cat   = CATS.find(c => c.id === yolo.issueCategory);
   return (
-    <div style={{ position:"absolute",...style,border:`2px solid ${col}`,borderRadius:4,pointerEvents:"none",boxShadow:`0 0 10px ${col}44` }}>
-      <div style={{ position:"absolute",top:-22,left:0,background:col,color:"#020609",fontSize:10,fontWeight:800,padding:"2px 8px",borderRadius:"3px 3px 3px 0",whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace" }}>
-        {cat && cat.icon} {yolo.issueLabel} {(yolo.confidence * 100).toFixed(0)}%
+    <div style={{ position:"absolute",...style,border:`1px solid ${col}`,borderRadius:2,pointerEvents:"none",boxShadow:`0 0 20px ${col}33` }}>
+      {/* Label Badge */}
+      <div style={{ position:"absolute",top:-24,left:-1,background:col,color:"#020609",fontSize:11,fontWeight:900,padding:"3px 10px",borderRadius:"3px 3px 3px 0",whiteSpace:"nowrap",fontFamily:"'DM Mono',monospace",boxShadow:`0 4px 10px ${col}40` }}>
+        {cat && cat.icon} {yolo.issueLabel?.toUpperCase()} {(yolo.confidence * 100).toFixed(0)}%
       </div>
-      {[{t:0,l:0},{t:0,r:0},{b:0,l:0},{b:0,r:0}].map((s, i) => (
-        <div key={i} style={{ position:"absolute",...s,width:8,height:8,border:`2px solid ${col}`,borderRadius:1 }}/>
+
+      {/* Modern Corner Accents */}
+      {[
+        { t:-1, l:-1, b: "inset 2px 2px 0 "+col },
+        { t:-1, r:-1, b: "inset -2px 2px 0 "+col },
+        { b:-1, l:-1, b: "inset 2px -2px 0 "+col },
+        { b:-1, r:-1, b: "inset -2px -2px 0 "+col }
+      ].map((s, i) => (
+        <div key={i} style={{ position:"absolute", top:s.t, left:s.l, right:s.r, bottom:s.b, width:14, height:14, boxShadow:s.b }}/>
       ))}
+
+      {/* Target Reticle in Center */}
+      <div style={{ position:"absolute",top:"50%",left:"50%",transform:"translate(-50%,-50%)",width:20,height:20,border:`1px solid ${col}40`,borderRadius:"50%" }}>
+        <div style={{ position:"absolute",top:"50%",left:0,right:0,height:1,background:`${col}60` }}/>
+        <div style={{ position:"absolute",left:"50%",top:0,bottom:0,width:1,background:`${col}60` }}/>
+      </div>
     </div>
   );
 }
@@ -319,13 +346,34 @@ function AIStep({ photo, onDone, onRetake, lang = "en" }) {
 
   return (
     <div style={{ animation:"fadeUp .3s ease" }}>
-      <div style={{ position:"relative",borderRadius:10,overflow:"hidden",border:"1px solid rgba(0,200,255,.18)",marginBottom:14 }}>
-        <img src={photo} alt="scan" style={{ width:"100%",maxHeight:220,objectFit:"cover",display:"block" }}/>
+      <div style={{ position:"relative",borderRadius:12,overflow:"hidden",border:"1px solid rgba(0,200,255,.3)",marginBottom:14,boxShadow:"0 10px 30px rgba(0,0,0,.5)" }}>
+        <img src={photo} alt="scan" style={{ width:"100%",maxHeight:240,objectFit:"cover",display:"block" }}/>
         {yolo && <DetectionOverlay yolo={yolo}/>}
         {phase === "scanning" && (
-          <div style={{ position:"absolute",inset:0,background:"rgba(0,200,255,.04)" }}>
-            <div style={{ position:"absolute",top:0,left:0,right:0,height:2,background:"linear-gradient(90deg,transparent,#00ccff,transparent)",animation:"scanLine 1.8s linear infinite" }}/>
-          </div>
+          <>
+            <div style={{ position:"absolute",inset:0,background:"rgba(0,100,255,.05)" }}>
+              {/* Animated Scan Line */}
+              <div style={{
+                position:"absolute",top:0,left:0,right:0,height:3,
+                background:"linear-gradient(90deg,transparent,#00ccff,#00ff9d,#00ccff,transparent)",
+                boxShadow:"0 0 15px #00ccff, 0 0 30px #00ff9d",
+                zIndex:10,
+                animation:"scanLine 2.2s ease-in-out infinite"
+              }}/>
+              {/* Corner Brackets during scanning */}
+              {[
+                { t:15, l:15, tr:"rotate(0deg)" },
+                { t:15, r:15, tr:"rotate(90deg)" },
+                { b:15, l:15, tr:"rotate(-90deg)" },
+                { b:15, r:15, tr:"rotate(180deg)" }
+              ].map((s,i)=>(
+                <div key={i} style={{ position:"absolute",top:s.t,left:s.l,right:s.r,bottom:s.b,width:24,height:24,borderTop:"3px solid #00ccff",borderLeft:"3px solid #00ccff",transform:s.tr,opacity:0.8,animation:"pulse 1.5s infinite" }}/>
+              ))}
+            </div>
+            <div style={{ position:"absolute",bottom:12,left:12,background:"rgba(0,0,0,.7)",color:"#00ccff",padding:"4px 10px",borderRadius:4,fontSize:10,fontFamily:"'DM Mono',monospace",fontWeight:700 }}>
+              AI_PROX_SCAN: {progress}%
+            </div>
+          </>
         )}
       </div>
 
@@ -374,12 +422,23 @@ function AIStep({ photo, onDone, onRetake, lang = "en" }) {
                 ))}
               </div>
             )}
-            <div style={{ marginTop:10,display:"flex",alignItems:"center",gap:8 }}>
-              <span style={{ fontSize:10,color:"rgba(150,200,255,.35)",minWidth:60 }}>Confidence</span>
-              <div style={{ flex:1,height:4,background:"rgba(255,255,255,.06)",borderRadius:2 }}>
-                <div style={{ height:"100%",width:`${(yolo.confidence*100).toFixed(0)}%`,background:"linear-gradient(90deg,#3b9fff,#00ff9d)",borderRadius:2 }}/>
+            <div style={{ marginTop:14,background:"rgba(255,255,255,.03)",padding:"12px",borderRadius:8,border:"1px solid rgba(255,255,255,.06)" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8 }}>
+                <span style={{ fontSize:11,color:"rgba(150,200,255,.45)",fontWeight:600 }}>CONFIDENCE SCORE</span>
+                <span style={{ fontSize:14,color:"#00ff9d",fontFamily:"'DM Mono',monospace",fontWeight:800 }}>{(yolo.confidence*100).toFixed(1)}%</span>
               </div>
-              <span style={{ fontSize:10,color:"#00ff9d",fontFamily:"'DM Mono',monospace",minWidth:32 }}>{(yolo.confidence*100).toFixed(0)}%</span>
+              <div style={{ position:"relative",height:10,background:"rgba(0,0,0,.3)",borderRadius:5,overflow:"hidden" }}>
+                <div style={{
+                  height:"100%",
+                  width:`${(yolo.confidence*100).toFixed(0)}%`,
+                  background:"linear-gradient(90deg, #3b9fff, #00ff9d)",
+                  borderRadius:5,
+                  transition:"width 1.5s cubic-bezier(0.17, 0.67, 0.83, 0.67)",
+                  boxShadow:"0 0 10px #00ff9d60"
+                }}/>
+                {/* Confidence Stripes */}
+                <div style={{ position:"absolute",inset:0,background:"repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(255,255,255,0.05) 10px, rgba(255,255,255,0.05) 20px)" }}/>
+              </div>
             </div>
           </div>
 

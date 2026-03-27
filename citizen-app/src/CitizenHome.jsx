@@ -11,8 +11,10 @@ const API = "https://civicsentinel-ai-1-z7io.onrender.com";
 
 const STATUS_COLOR = {
   submitted:   "#3b82f6",
+  in_review:   "#8b5cf6",
   in_progress: "#f97316",
   resolved:    "#22c55e",
+  rejected:    "#ef4444",
 };
 
 const ISSUE_ICONS = {
@@ -122,8 +124,13 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
       : tl(lang, "greeting_evening");
   };
 
-  const progressPct = (s) =>
-    s === "resolved" ? 100 : s === "in_progress" ? 55 : 20;
+  const progressPct = (s) => {
+    if (s === "resolved") return 100;
+    if (s === "in_progress") return 70;
+    if (s === "in_review") return 40;
+    if (s === "submitted") return 15;
+    return 0; // rejected or unknown
+  };
 
   // Helper: format ISO timestamp → human date
   const formatDate = (iso) => {
@@ -326,12 +333,13 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
 
             {/* Empty state */}
             {!user.guest && !reportsLoading && !reportsError && myReports.length === 0 && (
-              <div style={{ textAlign:"center",padding:"48px 20px",color:"rgba(134,239,172,.38)",fontSize:14,lineHeight:1.7 }}>
-                <div style={{ fontSize:40,marginBottom:12 }}>📭</div>
-                <div>{tl(lang,"noReports")}</div>
+              <div style={{ textAlign:"center",padding:"60px 20px",color:"rgba(134,239,172,.38)",fontSize:14,lineHeight:1.7,animation:"fadeUp .5s ease" }}>
+                <div style={{ fontSize:60,marginBottom:20,filter:"drop-shadow(0 0 10px rgba(34,197,94,0.2))" }}>📭</div>
+                <div style={{ fontSize:16,fontWeight:700,color:"#d1fae5",marginBottom:4 }}>Everything's clear!</div>
+                <div style={{ fontSize:13 }}>You haven't submitted any reports yet.</div>
                 <button onClick={() => setTab("report")}
-                  style={{ marginTop:16,padding:"10px 22px",background:"rgba(34,197,94,.1)",border:"1px solid rgba(34,197,94,.25)",borderRadius:9,color:GREEN,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:"'Inter',sans-serif" }}>
-                  Submit your first report →
+                  style={{ marginTop:24,padding:"12px 28px",background:"rgba(34,197,94,.12)",border:"2px solid rgba(34,197,94,.3)",borderRadius:12,color:GREEN,fontSize:14,fontWeight:800,cursor:"pointer",fontFamily:"'Inter',sans-serif",boxShadow:"0 4px 15px rgba(0,0,0,.3)" }}>
+                  Submit Your First Report →
                 </button>
               </div>
             )}
@@ -340,50 +348,83 @@ export default function CitizenHome({ user, onReport, onLogout, onProfile, onLan
             {!user.guest && !reportsLoading && !reportsError && myReports.length > 0 && (
               <div style={{ display:"flex",flexDirection:"column",gap:12 }}>
                 {myReports.map((r, i) => {
-                  const sc  = STATUS_COLOR[r.status] || GREEN;
-                  const pct = progressPct(r.status);
+                  const id = r.report_id || r.id || i;
                   return (
-                    <div key={r.id || i}
-                      style={{ background:"rgba(4,20,10,.9)",border:"1px solid rgba(34,197,94,.1)",borderLeft:`3px solid ${sc}`,borderRadius:14,padding:"15px 16px",animation:`fadeUp .3s ease ${i * .07}s both` }}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = `${sc}40`}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = "rgba(34,197,94,.1)"}>
+                    <div key={id}
+                      style={{
+                        background:"rgba(4,24,12,.95)",
+                        border:"1px solid rgba(34,197,94,.12)",
+                        borderLeft:`4px solid ${sc}`,
+                        borderRadius:16,
+                        padding:"18px",
+                        position:"relative",
+                        overflow:"hidden",
+                        transition:"all .25s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                        animation:`fadeUp .4s ease ${i * .07}s both`,
+                        cursor:"pointer"
+                      }}
+                      onMouseEnter={e => {
+                        e.currentTarget.style.transform = "translateY(-4px)";
+                        e.currentTarget.style.borderColor = `${sc}50`;
+                        e.currentTarget.style.boxShadow = `0 12px 30px rgba(0,0,0,0.5), 0 0 15px ${sc}15`;
+                      }}
+                      onMouseLeave={e => {
+                        e.currentTarget.style.transform = "translateY(0)";
+                        e.currentTarget.style.borderColor = "rgba(34,197,94,.12)";
+                        e.currentTarget.style.boxShadow = "none";
+                      }}>
 
-                      {/* Header row */}
-                      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8 }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:9 }}>
-                          <span style={{ fontSize:20 }}>{ISSUE_ICONS[r.issue] || "📌"}</span>
-                          <span style={{ fontSize:14,fontWeight:700,color:"#d1fae5",textTransform:"capitalize" }}>{r.issue}</span>
-                        </div>
-                        <span style={{ fontSize:11,fontWeight:700,color:sc,background:`${sc}18`,border:`1px solid ${sc}38`,borderRadius:20,padding:"3px 11px" }}>
-                          {tl(lang, "status_" + r.status) || r.status}
-                        </span>
-                      </div>
-
-                      {/* Description */}
-                      <div style={{ fontSize:13,color:"rgba(187,247,208,.55)",marginBottom:10,lineHeight:1.5 }}>{r.desc || "—"}</div>
-
-                      {/* Meta: ward / city / date */}
-                      <div style={{ display:"flex",gap:14,marginBottom:10 }}>
-                        {[[tl(lang,"ward"), r.ward], [tl(lang,"city"), r.city], [tl(lang,"date"), formatDate(r.date)]].map(([l, v]) => (
-                          <div key={l}>
-                            <div style={{ fontSize:9,color:"rgba(134,239,172,.3)" }}>{l}</div>
-                            <div style={{ fontSize:11,color:"rgba(187,247,208,.7)",fontWeight:600 }}>{v || "—"}</div>
+                      {/* Status Badge + Icon */}
+                      <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:10 }}>
+                          <div style={{ width:36,height:36,borderRadius:10,background:`${sc}15`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:20,border:`1px solid ${sc}30` }}>
+                            {ISSUE_ICONS[r.issue] || "📌"}
                           </div>
-                        ))}
-                      </div>
-
-                      {/* Progress bar */}
-                      <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                        <div style={{ flex:1,height:4,background:"rgba(255,255,255,.06)",borderRadius:2 }}>
-                          <div style={{ height:"100%",width:`${pct}%`,background:sc,borderRadius:2,transition:"width 1.2s ease" }}/>
+                          <div>
+                            <div style={{ fontSize:14,fontWeight:800,color:"#fff",textTransform:"uppercase",letterSpacing:"0.03em" }}>{r.issue || "CIVIC ISSUE"}</div>
+                            <div style={{ fontSize:10,color:"rgba(134,239,172,.35)",fontFamily:"'DM Mono',monospace" }}>#{id}</div>
+                          </div>
                         </div>
-                        <span style={{ fontSize:10,color:sc,fontFamily:"'DM Mono',monospace",minWidth:30 }}>{pct}%</span>
+                        <div style={{ textAlign:"right" }}>
+                          <div style={{ fontSize:11,fontWeight:900,color:sc,background:`${sc}12`,padding:"4px 12px",borderRadius:20,border:`1px solid ${sc}40`,textTransform:"uppercase" }}>
+                            {tl(lang, "status_" + r.status) || r.status.replace("_"," ")}
+                          </div>
+                        </div>
                       </div>
 
-                      {/* Report ID */}
-                      <div style={{ marginTop:7,fontSize:9.5,color:"rgba(134,239,172,.25)",fontFamily:"'DM Mono',monospace" }}>
-                        {tl(lang,"reportId")}: {r.id}
+                      {/* Description Text */}
+                      <div style={{ fontSize:13,color:"rgba(187,247,208,.75)",marginBottom:14,lineHeight:1.55,display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical",overflow:"hidden" }}>
+                        {r.text || r.desc || "No detailed description provided."}
                       </div>
+
+                      {/* Location & Time Info */}
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,background:"rgba(0,0,0,0.25)",padding:10,borderRadius:10,marginBottom:14 }}>
+                        <div>
+                          <div style={{ fontSize:9,color:"rgba(34,197,94,.4)",fontWeight:700,letterSpacing:"0.05em" }}>LOCATION</div>
+                          <div style={{ fontSize:11,color:"#d1fae5",fontWeight:600,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis" }}>{r.ward || r.location || "City Ward"}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize:9,color:"rgba(34,197,94,.4)",fontWeight:700,letterSpacing:"0.05em" }}>LAST UPDATE</div>
+                          <div style={{ fontSize:11,color:"#d1fae5",fontWeight:600,marginTop:2 }}>{formatDate(r.timestamp || r.date)}</div>
+                        </div>
+                      </div>
+
+                      {/* Premium Progress Bar */}
+                      <div style={{ position:"relative",height:6,background:"rgba(255,255,255,.05)",borderRadius:3,overflow:"hidden" }}>
+                        <div style={{
+                          height:"100%",
+                          width:`${pct}%`,
+                          background: r.status === "rejected" ? "#ef4444" : `linear-gradient(90deg, ${sc}dd, ${sc})`,
+                          borderRadius:3,
+                          transition:"width 1.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+                          boxShadow:`0 0 10px ${sc}40`
+                        }}/>
+                        {/* Shimmer effect on progress bar */}
+                        {r.status !== "resolved" && r.status !== "rejected" && (
+                          <div style={{ position:"absolute",inset:0,background:"linear-gradient(90deg,transparent,rgba(255,255,255,0.1),transparent)",backgroundSize:"100px 100%",animation:"shimmer 2s infinite" }}/>
+                        )}
+                      </div>
+
                     </div>
                   );
                 })}

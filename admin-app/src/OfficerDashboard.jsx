@@ -8,7 +8,7 @@ import {
 // ══════════════════════════════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════════════════════════════
-const API = "https://civicsentinel-ai-1-z7io.onrender.com";
+const API = "https://civicsentinel-ai-pszx.onrender.com";
 const POLL_MS = 8000;
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -105,7 +105,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight?query=overview`).then(r => r.json()),
+        fetch(`${API}/ai-insight`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
