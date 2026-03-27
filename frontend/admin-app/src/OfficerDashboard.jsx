@@ -106,7 +106,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight`).then(r => r.json()),
+        fetch(`${API}/ai-insight?query=summarize+civic+issues`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
@@ -604,7 +604,116 @@ function KnowledgeGraph({ data, isDark }) {
 
   useEffect(() => {
     if (!nodes.length) return;
+<<<<<<< HEAD
     const canvas = canvasRef.current; if(!canvas) return;
+=======
+    const cityEdge = {}, issueEdge = {};
+    edges.forEach(e => {
+      const a = nodes[e.from], b = nodes[e.to];
+      if (a?.type === "city")  cityEdge[a.label]  = (cityEdge[a.label]  || 0) + 1;
+      if (b?.type === "city")  cityEdge[b.label]  = (cityEdge[b.label]  || 0) + 1;
+      if (a?.type === "issue") issueEdge[a.label] = (issueEdge[a.label] || 0) + 1;
+      if (b?.type === "issue") issueEdge[b.label] = (issueEdge[b.label] || 0) + 1;
+    });
+    const topCity  = Object.entries(cityEdge).sort((a,b)=>b[1]-a[1])[0];
+    const topIssue = Object.entries(issueEdge).sort((a,b)=>b[1]-a[1])[0];
+    setStats({
+      totalNodes: nodes.length, totalEdges: edges.length,
+      cities: nodes.filter(n=>n.type==="city").length,
+      issues: nodes.filter(n=>n.type==="issue").length,
+      topCity:  topCity  ? topCity[0]  : "—",
+      topIssue: topIssue ? topIssue[0] : "—",
+    });
+  }, [nodes, edges]);
+
+  // ── Run physics OFFLINE → settle → render static positions ───────────
+  useEffect(() => {
+    if (!nodes.length || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const W = canvas.width;
+    const H = canvas.height;
+
+    // ── Step 1: initialise positions spread across 80% of canvas ──────
+    // Use a grid-jitter layout so nodes start far apart
+    const cols    = Math.ceil(Math.sqrt(nodes.length * (W / H)));
+    const rows    = Math.ceil(nodes.length / cols);
+    const cellW   = (W * 0.82) / cols;
+    const cellH   = (H * 0.78) / rows;
+    const offsetX = W * 0.09;
+    const offsetY = H * 0.11;
+
+    let placed = nodes.map((n, i) => {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      return {
+        ...n,
+        x:  offsetX + col * cellW + cellW / 2 + (Math.random() - 0.5) * cellW * 0.55,
+        y:  offsetY + row * cellH + cellH / 2 + (Math.random() - 0.5) * cellH * 0.55,
+        vx: 0,
+        vy: 0,
+      };
+    });
+
+    // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
+    // Strong repulsion + weak edge attraction → spreads evenly then stops
+    const REPEL    = 28000;   // much stronger push apart
+const ATTRACT  = 0.006;   // weaker pull together
+const DAMPING  = 0.72;
+const PADDING  = 90;
+const MIN_DIST = 140;     // enforced minimum gap
+
+for (let step = 0; step < 500; step++) {  // more iterations to fully settle
+      const cooling = 1 - step / 320; // cool down over time → less movement
+
+      for (let i = 0; i < placed.length; i++) {
+        let fx = 0, fy = 0;
+
+        // Repulsion
+        for (let j = 0; j < placed.length; j++) {
+          if (i === j) continue;
+          const dx   = placed[i].x - placed[j].x;
+          const dy   = placed[i].y - placed[j].y;
+          const dist = Math.max(Math.hypot(dx, dy), MIN_DIST * 0.5);
+          const force = REPEL / (dist * dist);
+          fx += (dx / dist) * force * cooling;
+          fy += (dy / dist) * force * cooling;
+        }
+
+        // Attraction along edges
+        edges.forEach(e => {
+          const other = e.from === i ? placed[e.to] : e.to === i ? placed[e.from] : null;
+          if (!other) return;
+          const dx = other.x - placed[i].x;
+          const dy = other.y - placed[i].y;
+          fx += dx * ATTRACT;
+          fy += dy * ATTRACT;
+        });
+
+        // Gentle center gravity
+        fx += (W / 2 - placed[i].x) * 0.003;
+        fy += (H / 2 - placed[i].y) * 0.003;
+
+        placed[i].vx = (placed[i].vx + fx) * DAMPING;
+        placed[i].vy = (placed[i].vy + fy) * DAMPING;
+
+        // Clamp velocity — reduces sharply as simulation cools
+        const maxV = 6 * cooling + 0.5;
+        placed[i].vx = Math.max(-maxV, Math.min(maxV, placed[i].vx));
+        placed[i].vy = Math.max(-maxV, Math.min(maxV, placed[i].vy));
+
+        placed[i].x = Math.max(PADDING, Math.min(W - PADDING, placed[i].x + placed[i].vx));
+        placed[i].y = Math.max(PADDING, Math.min(H - PADDING, placed[i].y + placed[i].vy));
+      }
+    }
+
+    // ── Step 3: zero out all velocities — positions are now FROZEN ─────
+    placed = placed.map(n => ({ ...n, vx: 0, vy: 0 }));
+    placedRef.current = placed;
+    edgesRef.current  = edges;
+
+    // ── Step 4: pure render loop — only pulse dots animate ────────────
+>>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
 
@@ -688,9 +797,11 @@ function AIInsightPanel({ insight, loading, error }) {
   const [localLoading, setLocalLoading] = useState(false);
 
   const fetchInsight = useCallback(async (q) => {
-    setLocalLoading(true);
-    try {
-      const url = q ? `${API}/ai-insight?query=${encodeURIComponent(q)}` : `${API}/ai-insight`;
+  setLocalLoading(true);
+  try {
+    // Always send a default query — never call /ai-insight without one
+    const safeQuery = q || "summarize current civic issues and risk levels";
+    const url = `${API}/ai-insight?query=${encodeURIComponent(safeQuery)}`;
       const res = await fetch(url);
       const d = await res.json();
       setLocalResult(d);
