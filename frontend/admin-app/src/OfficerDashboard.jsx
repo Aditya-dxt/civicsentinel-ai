@@ -93,11 +93,10 @@ function useDashboard() {
     events: [], riskSummary: {}, issueTrends: {}, alerts: [],
     predictions: [], aiInsight: null, knowledgeGraph: null,
     health: null, dashboard: null, riskMap: null,
-    wsEvents: [], // live events pushed via WebSocket
+    wsEvents: [],
     loading: true, error: null, lastSync: null, connected: false, wsConnected: false,
   });
 
-  // ── REST polling ──────────────────────────────────────────
   const fetchAll = useCallback(async () => {
     try {
       const results = await Promise.allSettled([
@@ -106,7 +105,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight?query=summarize+civic+issues`).then(r => r.json()),
+        fetch(`${API}/ai-insight`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
@@ -140,38 +139,26 @@ function useDashboard() {
     return () => clearInterval(id);
   }, [fetchAll]);
 
-  // ── WebSocket — live event stream ─────────────────────────
   useEffect(() => {
     let ws; let retryTimer; let dead = false;
 
     const connect = () => {
       try {
         ws = new WebSocket(`wss://civicsentinel-ai-1.onrender.com/ws/events`);
-
-        ws.onopen = () => {
-          setState(prev => ({ ...prev, wsConnected: true }));
-        };
-
+        ws.onopen = () => setState(prev => ({ ...prev, wsConnected: true }));
         ws.onmessage = (msg) => {
           try {
             const data = JSON.parse(msg.data);
-            // Push incoming event to top of wsEvents list (keep last 50)
             setState(prev => ({
               ...prev,
               wsEvents: [data, ...prev.wsEvents].slice(0, 50),
-              // Also merge into main events list
               events: [data, ...prev.events].slice(0, 200),
             }));
-          } catch (_) { /* non-JSON frame, ignore */ }
+          } catch (_) {}
         };
-
-        ws.onerror = () => {
-          setState(prev => ({ ...prev, wsConnected: false }));
-        };
-
+        ws.onerror = () => setState(prev => ({ ...prev, wsConnected: false }));
         ws.onclose = () => {
           setState(prev => ({ ...prev, wsConnected: false }));
-          // Auto-reconnect after 5s unless component unmounted
           if (!dead) retryTimer = setTimeout(connect, 5000);
         };
       } catch (_) {
@@ -264,7 +251,6 @@ const CITY_GEO = {
   Warangal:         { lat:17.9689, lng:79.5941, zoom:12 },
 };
 
-// Ward GeoJSON per city — real approximate boundaries as polygons
 const WARD_GEOJSON = {
   Mumbai: { type:"FeatureCollection", features:[
     { type:"Feature", properties:{ name:"Colaba",   offset:-15 }, geometry:{ type:"Polygon", coordinates:[[[72.808,18.894],[72.836,18.894],[72.836,18.920],[72.808,18.920],[72.808,18.894]]] }},
@@ -309,11 +295,8 @@ const WARD_GEOJSON = {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LEAFLET MAP — India overview + city ward drill-down
-// Uses react-leaflet + OpenStreetMap tiles (run: npm install leaflet react-leaflet)
+// LEAFLET HELPERS
 // ══════════════════════════════════════════════════════════════════════════════
-
-// Leaflet CSS injected dynamically
 function useLeafletCSS() {
   useEffect(() => {
     if (document.getElementById("leaflet-css")) return;
@@ -325,7 +308,6 @@ function useLeafletCSS() {
   }, []);
 }
 
-// Lazy-load Leaflet from CDN so we don't need npm install
 function useLeaflet() {
   const [L, setL] = useState(null);
   useEffect(() => {
@@ -338,7 +320,9 @@ function useLeaflet() {
   return L;
 }
 
-// ── INDIA OVERVIEW MAP ──
+// ══════════════════════════════════════════════════════════════════════════════
+// INDIA OVERVIEW MAP
+// ══════════════════════════════════════════════════════════════════════════════
 function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
   const t = useT();
   const mapRef = useRef(null);
@@ -365,23 +349,19 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
     return () => { map.remove(); mapInstanceRef.current = null; };
   }, [L, isDark]);
 
-  // Update markers when riskSummary changes
   useEffect(() => {
     const map = mapInstanceRef.current;
     if (!L || !map) return;
-    // Remove old markers
     markersRef.current.forEach(m => map.removeLayer(m));
     markersRef.current = [];
     Object.entries(riskSummary || {}).forEach(([city, score]) => {
       let geo = CITY_GEO[city];
       if (!geo) {
-        // Try case-insensitive match
         const key = Object.keys(CITY_GEO).find(k => k.toLowerCase() === city.toLowerCase());
         geo = key ? CITY_GEO[key] : null;
       }
-      if (!geo) return; // truly unknown city
+      if (!geo) return;
       const col = riskCol(score, isDark);
-      const hexCol = col;
       const isDrilling = drillCity === city;
       const hasWards = !!WARD_GEOJSON[city];
       const icon = L.divIcon({
@@ -389,23 +369,25 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
         html: `<div style="
           width:${18 + (score/100)*14}px;
           height:${18 + (score/100)*14}px;
-          background:${hexCol}35;
-          border:2.5px solid ${hexCol};
+          background:${col}35;
+          border:2.5px solid ${col};
           border-radius:50%;
           display:flex;align-items:center;justify-content:center;
           cursor:${hasWards?"pointer":"default"};
-          box-shadow:0 0 ${score>=70?"14px":"7px"} ${hexCol}80;
+          box-shadow:0 0 ${score>=70?"14px":"7px"} ${col}80;
           position:relative;
-          ${isDrilling?`outline:3px solid ${hexCol};outline-offset:3px;`:""}
+          ${isDrilling?`outline:3px solid ${col};outline-offset:3px;`:""}
         ">
-          <span style="font-size:9px;font-weight:700;color:${hexCol};font-family:DM Mono,monospace;">${score}</span>
-          ${score>=70?`<div style="position:absolute;inset:-5px;border-radius:50%;border:1.5px solid ${hexCol};opacity:0.4;animation:rippleRing 2s infinite;"></div>`:""}
+          <span style="font-size:9px;font-weight:700;color:${col};font-family:DM Mono,monospace;">${score}</span>
+          ${score>=70?`<div style="position:absolute;inset:-5px;border-radius:50%;border:1.5px solid ${col};opacity:0.4;animation:rippleRing 2s infinite;"></div>`:""}
         </div>`,
         iconSize: [32, 32], iconAnchor: [16, 16],
       });
       const marker = L.marker([geo.lat, geo.lng], { icon });
-      marker.bindTooltip(`<div style="font-family:Inter,sans-serif;font-size:12px;font-weight:600">${city}</div><div style="font-size:11px;color:${hexCol}">Risk: ${score}/100 · ${riskLabel(score)}</div>${hasWards?"<div style='font-size:10px;opacity:0.7;margin-top:2px'>Click to view wards</div>":""}`,
-        { className:"civic-tooltip", permanent:false, direction:"top", offset:[0,-10] });
+      marker.bindTooltip(
+        `<div style="font-family:Inter,sans-serif;font-size:12px;font-weight:600">${city}</div><div style="font-size:11px;color:${col}">Risk: ${score}/100 · ${riskLabel(score)}</div>${hasWards?"<div style='font-size:10px;opacity:0.7;margin-top:2px'>Click to view wards</div>":""}`,
+        { className:"civic-tooltip", permanent:false, direction:"top", offset:[0,-10] }
+      );
       if (hasWards) marker.on("click", () => onCitySelect(city));
       marker.addTo(map);
       markersRef.current.push(marker);
@@ -420,7 +402,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
         @keyframes rippleRing { 0%,100%{transform:scale(1);opacity:0.4} 50%{transform:scale(1.5);opacity:0} }
       `}</style>
       <div ref={mapRef} style={{ height:380, borderRadius:8, overflow:"hidden", border:`1px solid ${t.border}` }}/>
-      {/* Legend */}
       <div style={{ position:"absolute", bottom:24, left:10, zIndex:1000,
         background: t.id==="dark"?"rgba(4,10,22,0.88)":"rgba(255,255,255,0.92)",
         border:`1px solid ${t.border}`, borderRadius:6, padding:"8px 12px",
@@ -437,7 +418,9 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
   );
 }
 
-// ── CITY WARD MAP ──
+// ══════════════════════════════════════════════════════════════════════════════
+// CITY WARD MAP
+// ══════════════════════════════════════════════════════════════════════════════
 function CityWardMap({ cityKey, cityRisk, isDark }) {
   const t = useT();
   const mapRef = useRef(null);
@@ -449,7 +432,7 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
   const geo = CITY_GEO[cityKey];
   const geojson = WARD_GEOJSON[cityKey];
   const wardRisk = useCallback((offset) => {
-    if (!cityRisk || cityRisk === 0) return 0; // no real data → don't show fake colors
+    if (!cityRisk || cityRisk === 0) return 0;
     return Math.min(99, Math.max(5, cityRisk + offset));
   }, [cityRisk]);
 
@@ -470,7 +453,6 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
       { subdomains:"abcd", maxZoom:19 }
     ).addTo(map);
 
-    // Add ward polygons — only show colors when real data exists
     L.geoJSON(geojson, {
       style: (feature) => {
         const risk = wardRisk(feature.properties.offset);
@@ -509,7 +491,6 @@ function CityWardMap({ cityKey, cityRisk, isDark }) {
   return (
     <div style={{ position:"relative" }}>
       <div ref={mapRef} style={{ height:340, borderRadius:8, overflow:"hidden", border:`1px solid ${t.border}` }}/>
-      {/* Ward risk legend overlay */}
       <div style={{ position:"absolute", bottom:24, left:10, zIndex:1000,
         background: t.id==="dark"?"rgba(4,10,22,0.88)":"rgba(255,255,255,0.92)",
         border:`1px solid ${t.border}`, borderRadius:6, padding:"8px 12px",
@@ -532,7 +513,6 @@ function KnowledgeGraph({ data, isDark }) {
   const t = useT();
   const canvasRef = useRef(null);
 
-  // Build nodes/edges — handles {nodes:N, edges:N, relations:[{city,issue}]} shape from real API
   const { nodes, edges } = useMemo(() => {
     if (!data) return { nodes: [], edges: [] };
 
@@ -543,8 +523,6 @@ function KnowledgeGraph({ data, isDark }) {
       return [];
     };
 
-    // PRIMARY: { nodes:N, edges:N, relations:[{city,issue,...}] }
-    // This is the actual API shape — build graph from relations
     if (data.relations && Array.isArray(data.relations) && data.relations.length > 0) {
       const relations = data.relations.slice(0, 20);
       const nodeMap = {};
@@ -568,7 +546,6 @@ function KnowledgeGraph({ data, isDark }) {
       if (ns.length > 0) return { nodes: ns, edges: es };
     }
 
-    // FALLBACK A: top-level array
     if (Array.isArray(data)) {
       const ns = data.slice(0, 20).map((item, i) => ({
         id: i, label: item.entity || item.city || item.issue || item.name || ("Node " + i),
@@ -578,7 +555,6 @@ function KnowledgeGraph({ data, isDark }) {
       return { nodes: ns, edges: es };
     }
 
-    // FALLBACK B: { nodes:[...], edges:[...] }
     if (data.nodes && Array.isArray(data.nodes) && data.nodes.length > 0) {
       const ns = toArr(data.nodes).slice(0, 20).map((n, i) => ({
         id: i, label: n.label || n.name || n.entity || ("Node " + i),
@@ -591,7 +567,6 @@ function KnowledgeGraph({ data, isDark }) {
       return { nodes: ns, edges: es };
     }
 
-    // FALLBACK C: plain {key:value} object
     const keys = Object.keys(data).filter(k => !["nodes","edges","relations"].includes(k)).slice(0, 14);
     if (keys.length > 0) {
       const ns = keys.map((k, i) => ({ id: i, label: k, type:"city", value: typeof data[k] === "number" ? data[k] : 50 }));
@@ -604,120 +579,10 @@ function KnowledgeGraph({ data, isDark }) {
 
   useEffect(() => {
     if (!nodes.length) return;
-<<<<<<< HEAD
     const canvas = canvasRef.current; if(!canvas) return;
-=======
-    const cityEdge = {}, issueEdge = {};
-    edges.forEach(e => {
-      const a = nodes[e.from], b = nodes[e.to];
-      if (a?.type === "city")  cityEdge[a.label]  = (cityEdge[a.label]  || 0) + 1;
-      if (b?.type === "city")  cityEdge[b.label]  = (cityEdge[b.label]  || 0) + 1;
-      if (a?.type === "issue") issueEdge[a.label] = (issueEdge[a.label] || 0) + 1;
-      if (b?.type === "issue") issueEdge[b.label] = (issueEdge[b.label] || 0) + 1;
-    });
-    const topCity  = Object.entries(cityEdge).sort((a,b)=>b[1]-a[1])[0];
-    const topIssue = Object.entries(issueEdge).sort((a,b)=>b[1]-a[1])[0];
-    setStats({
-      totalNodes: nodes.length, totalEdges: edges.length,
-      cities: nodes.filter(n=>n.type==="city").length,
-      issues: nodes.filter(n=>n.type==="issue").length,
-      topCity:  topCity  ? topCity[0]  : "—",
-      topIssue: topIssue ? topIssue[0] : "—",
-    });
-  }, [nodes, edges]);
-
-  // ── Run physics OFFLINE → settle → render static positions ───────────
-  useEffect(() => {
-    if (!nodes.length || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const W = canvas.width;
-    const H = canvas.height;
-
-    // ── Step 1: initialise positions spread across 80% of canvas ──────
-    // Use a grid-jitter layout so nodes start far apart
-    const cols    = Math.ceil(Math.sqrt(nodes.length * (W / H)));
-    const rows    = Math.ceil(nodes.length / cols);
-    const cellW   = (W * 0.82) / cols;
-    const cellH   = (H * 0.78) / rows;
-    const offsetX = W * 0.09;
-    const offsetY = H * 0.11;
-
-    let placed = nodes.map((n, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      return {
-        ...n,
-        x:  offsetX + col * cellW + cellW / 2 + (Math.random() - 0.5) * cellW * 0.55,
-        y:  offsetY + row * cellH + cellH / 2 + (Math.random() - 0.5) * cellH * 0.55,
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
-    // Strong repulsion + weak edge attraction → spreads evenly then stops
-    const REPEL    = 28000;   // much stronger push apart
-const ATTRACT  = 0.006;   // weaker pull together
-const DAMPING  = 0.72;
-const PADDING  = 90;
-const MIN_DIST = 140;     // enforced minimum gap
-
-for (let step = 0; step < 500; step++) {  // more iterations to fully settle
-      const cooling = 1 - step / 320; // cool down over time → less movement
-
-      for (let i = 0; i < placed.length; i++) {
-        let fx = 0, fy = 0;
-
-        // Repulsion
-        for (let j = 0; j < placed.length; j++) {
-          if (i === j) continue;
-          const dx   = placed[i].x - placed[j].x;
-          const dy   = placed[i].y - placed[j].y;
-          const dist = Math.max(Math.hypot(dx, dy), MIN_DIST * 0.5);
-          const force = REPEL / (dist * dist);
-          fx += (dx / dist) * force * cooling;
-          fy += (dy / dist) * force * cooling;
-        }
-
-        // Attraction along edges
-        edges.forEach(e => {
-          const other = e.from === i ? placed[e.to] : e.to === i ? placed[e.from] : null;
-          if (!other) return;
-          const dx = other.x - placed[i].x;
-          const dy = other.y - placed[i].y;
-          fx += dx * ATTRACT;
-          fy += dy * ATTRACT;
-        });
-
-        // Gentle center gravity
-        fx += (W / 2 - placed[i].x) * 0.003;
-        fy += (H / 2 - placed[i].y) * 0.003;
-
-        placed[i].vx = (placed[i].vx + fx) * DAMPING;
-        placed[i].vy = (placed[i].vy + fy) * DAMPING;
-
-        // Clamp velocity — reduces sharply as simulation cools
-        const maxV = 6 * cooling + 0.5;
-        placed[i].vx = Math.max(-maxV, Math.min(maxV, placed[i].vx));
-        placed[i].vy = Math.max(-maxV, Math.min(maxV, placed[i].vy));
-
-        placed[i].x = Math.max(PADDING, Math.min(W - PADDING, placed[i].x + placed[i].vx));
-        placed[i].y = Math.max(PADDING, Math.min(H - PADDING, placed[i].y + placed[i].vy));
-      }
-    }
-
-    // ── Step 3: zero out all velocities — positions are now FROZEN ─────
-    placed = placed.map(n => ({ ...n, vx: 0, vy: 0 }));
-    placedRef.current = placed;
-    edgesRef.current  = edges;
-
-    // ── Step 4: pure render loop — only pulse dots animate ────────────
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
 
-    // Simple force-like layout: place nodes on ellipse
     const placed = nodes.map((n, i) => {
       const angle = (i / nodes.length) * Math.PI * 2;
       return { ...n, x: W/2 + Math.cos(angle)*(W*0.38), y: H/2 + Math.sin(angle)*(H*0.38) };
@@ -726,7 +591,6 @@ for (let step = 0; step < 500; step++) {  // more iterations to fully settle
     let frame = 0; let id;
     const draw = () => {
       ctx.clearRect(0,0,W,H);
-      // Draw edges
       edges.forEach(e => {
         const from = placed[e.from]; const to = placed[e.to];
         if(!from||!to) return;
@@ -734,7 +598,6 @@ for (let step = 0; step < 500; step++) {  // more iterations to fully settle
         ctx.strokeStyle = isDark ? `rgba(0,200,255,${0.08+Math.abs(Math.sin(frame*.02+e.from))*.08})` : "rgba(0,60,140,0.08)";
         ctx.lineWidth = .8; ctx.stroke();
       });
-      // Draw nodes — city nodes = cyan, issue nodes = amber/red
       placed.forEach((n,i) => {
         const isCity  = n.type === "city";
         const isIssue = n.type === "issue";
@@ -743,18 +606,14 @@ for (let step = 0; step < 500; step++) {  // more iterations to fully settle
                   : riskCol(n.value||50, isDark);
         const pulse = 1 + Math.sin(frame*.03+i)*.1;
         const r = (isCity ? 9 : 7) * pulse;
-        // Glow ring
         ctx.beginPath(); ctx.arc(n.x,n.y,r+5,0,Math.PI*2);
         ctx.fillStyle = col + "18"; ctx.fill();
-        // Core circle
         ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2);
         ctx.fillStyle = col + "44"; ctx.fill();
         ctx.strokeStyle = col; ctx.lineWidth = isCity ? 1.8 : 1.3; ctx.stroke();
-        // Type icon text inside node
         ctx.fillStyle = isDark ? "rgba(255,255,255,0.9)" : col;
         ctx.font = "bold " + (r*0.9) + "px Inter,sans-serif"; ctx.textAlign="center";
         ctx.fillText(isCity ? "🏙" : isIssue ? "⚠" : "●", n.x, n.y + r*0.35);
-        // Label below node
         ctx.fillStyle = isDark ? "rgba(200,230,255,0.85)" : "rgba(12,24,40,0.7)";
         ctx.font = "600 9px Inter,sans-serif"; ctx.textAlign="center";
         ctx.fillText(String(n.label).slice(0,13), n.x, n.y + r + 12);
@@ -777,7 +636,6 @@ for (let step = 0; step < 500; step++) {  // more iterations to fully settle
   return (
     <div style={{position:"relative"}}>
       <canvas ref={canvasRef} width={900} height={320} style={{width:"100%",height:320,borderRadius:6}}/>
-      {/* Legend */}
       <div style={{position:"absolute",top:8,right:8,display:"flex",gap:10,background:isDark?"rgba(4,10,22,.85)":"rgba(255,255,255,.85)",padding:"5px 10px",borderRadius:7,border:`1px solid ${t.border}`,backdropFilter:"blur(8px)"}}>
         {[["🏙 City","#00ccff"],["⚠ Issue","#ffb800"]].map(([l,c])=>(
           <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:c,fontFamily:"'Inter',sans-serif",fontWeight:600}}>{l}</div>
@@ -788,7 +646,7 @@ for (let step = 0; step < 500; step++) {  // more iterations to fully settle
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// AI INSIGHT PANEL — uses /ai-insight endpoint
+// AI INSIGHT PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 function AIInsightPanel({ insight, loading, error }) {
   const t = useT();
@@ -797,11 +655,9 @@ function AIInsightPanel({ insight, loading, error }) {
   const [localLoading, setLocalLoading] = useState(false);
 
   const fetchInsight = useCallback(async (q) => {
-  setLocalLoading(true);
-  try {
-    // Always send a default query — never call /ai-insight without one
-    const safeQuery = q || "summarize current civic issues and risk levels";
-    const url = `${API}/ai-insight?query=${encodeURIComponent(safeQuery)}`;
+    setLocalLoading(true);
+    try {
+      const url = q ? `${API}/ai-insight?query=${encodeURIComponent(q)}` : `${API}/ai-insight`;
       const res = await fetch(url);
       const d = await res.json();
       setLocalResult(d);
@@ -811,10 +667,8 @@ function AIInsightPanel({ insight, loading, error }) {
     setLocalLoading(false);
   }, []);
 
-  // Use live insight or local query result
   const display = localResult || insight;
 
-  // Render insight — handle multiple possible shapes
   const renderInsight = (d) => {
     if (!d) return null;
     if (typeof d === "string") return <div style={{fontSize:14,lineHeight:1.9,color:t.id==="dark"?"#b8daff":t.txt,fontFamily:"'DM Mono',monospace"}}>{d}</div>;
@@ -848,7 +702,6 @@ function AIInsightPanel({ insight, loading, error }) {
         </div>
       </div>
 
-      {/* Live insight display */}
       <div style={{flex:1,overflowY:"auto",marginBottom:14,maxHeight:280}}>
         {(loading || localLoading) && !display && (
           <div style={{display:"flex",flexDirection:"column",gap:6}}>
@@ -860,14 +713,12 @@ function AIInsightPanel({ insight, loading, error }) {
         {error && !display && <div style={{fontSize:13,color:t.red,fontFamily:"'DM Mono',monospace",padding:"10px 0"}}>⚠ {error} — Backend may be waking up. Retrying...</div>}
       </div>
 
-      {/* Quick queries */}
       <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:9}}>
         {QUICK.map(q=>(
           <button key={q} onClick={()=>fetchInsight(q)} style={{background:`${t.accent}08`,border:`1px solid ${t.accent}22`,color:t.accent,borderRadius:4,padding:"4px 10px",fontSize:13,cursor:"pointer",fontFamily:"'Inter',sans-serif",letterSpacing:"0.06em"}}>{q.toUpperCase()}</button>
         ))}
       </div>
 
-      {/* Custom query */}
       <div style={{display:"flex",gap:7}}>
         <div style={{position:"relative",flex:1}}>
           <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:t.accent,pointerEvents:"none"}}>►</span>
@@ -946,206 +797,154 @@ function Glitch({ text, size=14 }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// SKELETON LOADER
-// ══════════════════════════════════════════════════════════════════════════════
 function Skeleton({ h=16, w="100%", mb=8 }) {
   const t=useT();
   return <div style={{height:h,width:w,background:`${t.border}`,borderRadius:4,marginBottom:mb,animation:"skeletonPulse 1.4s ease infinite"}}/>;
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// MAIN DASHBOARD
-// ══════════════════════════════════════════════════════════════════════════════
-// ══════════════════════════════════════════════════════════════════════════════
-// AI CIVIC COPILOT PANEL — /ai-civic-copilot endpoint (chatbot-style)
+// AI CIVIC COPILOT PANEL — chatbot-style
 // ══════════════════════════════════════════════════════════════════════════════
 function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=[], predictions=[] }) {
-
-  // Answer queries locally from live data when backend AI returns nothing
-  const localAnswer = (query) => {
-    const q = query.toLowerCase();
-    const riskEntries = Object.entries(riskSummary).sort((a,b)=>b[1]-a[1]);
-    const high = riskEntries.filter(([,s])=>s>=70);
-
-    if (q.includes("high risk") || q.includes("risk cit")) {
-      if (riskEntries.length === 0) return "No risk data available yet. Submit complaints to generate risk scores.";
-      const top = riskEntries.slice(0,5).map(([c,s])=>c+" ("+s+")").join(", ");
-      const crit = high.length > 0 ? high.map(([c,s])=>c+" - "+s).join(", ") : "None currently";
-      return "Based on live /risk-summary data:\n\nTop risk cities: " + top + "\n\nCritical (>=70): " + crit + "\n\nTotal monitored: " + riskEntries.length + " cities.";
-    }
-    if (q.includes("alert")) {
-      if (alerts.length === 0) return "No active alerts right now from /alerts endpoint.";
-      return "Active alerts (" + alerts.length + " total):\n\n" + alerts.slice(0,5).map((a,i)=>(i+1)+". "+(typeof a==="string"?a:JSON.stringify(a))).join("\n");
-    }
-    if (q.includes("predict") || q.includes("forecast")) {
-      if (predictions.length === 0) return "No predictions available yet from /predictions endpoint.";
-      return "AI Crisis Predictions (" + predictions.length + "):\n\n" + predictions.slice(0,5).map((p,i)=>(i+1)+". "+(typeof p==="string"?p:p.prediction||p.issue||JSON.stringify(p))).join("\n");
-    }
-    if (q.includes("complaint") || q.includes("report") || q.includes("event")) {
-      if (events.length === 0) return "No complaint events yet in the system.";
-      const cities = [...new Set(events.map(e=>e.city||e.location).filter(Boolean))].slice(0,6);
-      const latest = events[0] ? (events[0].city||events[0].location||"Unknown")+" - "+(events[0].issue||events[0].text||"") : "N/A";
-      return "Total complaints: " + events.length + "\n\nCities with complaints: " + cities.join(", ") + "\n\nMost recent: " + latest;
-    }
-    const cityMatch = riskEntries.find(([c])=>q.includes(c.toLowerCase()));
-    if (cityMatch) {
-      const name = cityMatch[0]; const score = cityMatch[1];
-      const cityEvents = events.filter(e=>(e.city||e.location||"").toLowerCase()===name.toLowerCase());
-      const label = score>=70?"CRITICAL":score>=40?"HIGH":"STABLE";
-      const advice = score>=70 ? "Immediate intervention recommended." : "Status within manageable range.";
-      return name + " Risk Report:\n\nScore: " + score + "/100 - " + label + "\nComplaints: " + cityEvents.length + " recorded\n" + advice;
-    }
-    return null; // no local answer available
-  };
   const [messages, setMessages] = useState([
-    { role:"system", text:"AI Civic Copilot ready. Ask me anything about civic issues, risk levels, or specific cities.", ts: new Date().toLocaleTimeString() }
+    { role:"system", text:"AI Civic Copilot ready.", ts: new Date().toLocaleTimeString() }
   ]);
-  const [input, setInput]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const bottomRef               = useRef(null);
-
-  const SUGGESTIONS = [
-    "What are the high risk cities right now?",
-    "Water crisis in Mumbai",
-    "Predict upcoming issues in Delhi",
-    "Which ward has the most complaints?",
-  ];
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
 
   useEffect(() => {
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior:"smooth" });
+    bottomRef.current?.scrollIntoView({ behavior:"smooth" });
   }, [messages]);
 
-  const send = async (q) => {
-    const query = (q || input).trim();
-    if (!query) return;
+  const send = async () => {
+    if (!input.trim()) return;
+    const query = input;
     setInput("");
     setMessages(prev => [...prev, { role:"user", text:query, ts:new Date().toLocaleTimeString() }]);
     setLoading(true);
-
-    const extractText = (data) => {
-      if (!data) return null;
-      if (typeof data === "string") return data;
-      // Detect empty/no_data responses
-      if (data.status === "no_data" || data.status === "empty") return null;
-      return data.response || data.answer || data.ai_analysis || data.insight
-          || data.message || data.result || null;
-    };
-
-    let reply = null;
-
-    // Try /ai-civic-copilot first
     try {
-      const res  = await fetch(`${API}/ai-civic-copilot?query=${encodeURIComponent(query)}`);
+      const res = await fetch(`${API}/ai-civic-copilot?query=${encodeURIComponent(query)}`);
       const data = await res.json();
-      reply = extractText(data);
-    } catch(_) { /* will fallback */ }
-
-    // Fallback to /ai-insight if copilot failed or returned no_data
-    if (!reply) {
-      try {
-        const res  = await fetch(`${API}/ai-insight?query=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        reply = extractText(data);
-        if (reply) reply = "💡 [via /ai-insight]\n\n" + reply;
-      } catch(e) {
-        reply = null;
-      }
+      const reply = data?.response || data?.answer || "No response";
+      setMessages(prev => [...prev, { role:"assistant", text:reply, ts:new Date().toLocaleTimeString() }]);
+    } catch {
+      setMessages(prev => [...prev, { role:"assistant", text:"Error fetching AI response", ts:new Date().toLocaleTimeString() }]);
     }
-
-    // Final fallback — answer from local live data
-    if (!reply) {
-      const local = localAnswer(query);
-      if (local) {
-        reply = "[Live Data] " + local;
-      } else {
-        reply = "Backend AI returned no data. Try: high risk cities, active alerts, predictions, or a city name. The AI may still be warming up on Render free tier (wait ~30s).";
-      }
-    }
-
-    setMessages(prev => [...prev, { role:"assistant", text:reply, ts:new Date().toLocaleTimeString() }]);
     setLoading(false);
   };
 
-  return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:14,height:"calc(100vh - 160px)",minHeight:500}}>
-      {/* Chat window */}
-      <Panel title="AI CIVIC COPILOT" subtitle="/ai-civic-copilot · chatbot-style civic intelligence" acc={theme.green} tag="AI-LIVE" style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        {/* Messages */}
-        <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,paddingRight:4,marginBottom:12}}>
-          {messages.map((m,i) => (
-            <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",animation:"fadeUp .25s ease"}}>
-              <div style={{
-                maxWidth:"85%", padding:"11px 14px", borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",
-                background: m.role==="user" ? `${theme.accent}18`
-                          : m.role==="error" ? `${theme.red}10`
-                          : m.role==="system" ? `${theme.amber}08`
-                          : `${theme.green}08`,
-                border: `1px solid ${m.role==="user"?theme.accent:m.role==="error"?theme.red:m.role==="system"?theme.amber:theme.green}25`,
-              }}>
-                <div style={{fontSize:13,color:m.role==="user"?theme.accent:m.role==="error"?theme.red:m.role==="system"?"rgba(255,184,0,.75)":isDark?"#b8daff":theme.txt,lineHeight:1.7,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.text}</div>
-                <div style={{fontSize:9.5,color:theme.txtMute,marginTop:4,fontFamily:"'DM Mono',monospace"}}>{m.ts}</div>
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:`${theme.green}06`,border:`1px solid ${theme.green}18`,borderRadius:10,maxWidth:"60%"}}>
-              {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:theme.green,animation:`pulse 1.2s ease ${i*.2}s infinite`}}/>)}
-              <span style={{fontSize:12,color:theme.green,fontFamily:"'DM Mono',monospace"}}>AI thinking…</span>
-            </div>
-          )}
-          <div ref={bottomRef}/>
-        </div>
-        {/* Input row */}
-        <div style={{display:"flex",gap:8,borderTop:`1px solid ${theme.border}`,paddingTop:12}}>
-          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&send()}
-            placeholder="Ask about any civic issue, city, or risk…"
-            style={{flex:1,background:theme.inputBg,border:`1.5px solid ${theme.inputBorder}`,borderRadius:9,padding:"11px 14px",fontSize:13,color:theme.inputTxt,outline:"none",fontFamily:"'Inter',sans-serif",transition:"border-color .2s"}}
-            onFocus={e=>e.target.style.borderColor=theme.inputFocus}
-            onBlur={e=>e.target.style.borderColor=theme.inputBorder}/>
-          <button onClick={()=>!loading&&send()} disabled={loading||!input.trim()}
-            style={{padding:"11px 18px",background:loading||!input.trim()?`${theme.green}08`:`${theme.green}18`,border:`1px solid ${theme.green}${loading||!input.trim()?"20":"45"}`,borderRadius:9,color:loading||!input.trim()?`${theme.green}40`:theme.green,fontSize:13,fontWeight:700,cursor:loading||!input.trim()?"not-allowed":"pointer",fontFamily:"'Inter',sans-serif",transition:"all .18s"}}>
-            {loading?"…":"Send"}
-          </button>
-        </div>
-      </Panel>
+  const msgBubble = (m, i) => {
+    const isUser = m.role === "user";
+    const isSystem = m.role === "system";
+    return (
+      <div key={i} style={{
+        display:"flex", flexDirection:"column",
+        alignItems: isUser ? "flex-end" : "flex-start",
+        marginBottom:10, animation:"fadeUp .25s ease",
+      }}>
+        {!isSystem && (
+          <div style={{
+            maxWidth:"82%", padding:"10px 14px",
+            background: isUser
+              ? `linear-gradient(135deg,${theme.accent}22,${theme.accent}14)`
+              : `${theme.panel}`,
+            border:`1px solid ${isUser ? theme.accent+"40" : theme.border}`,
+            borderRadius: isUser ? "12px 12px 2px 12px" : "12px 12px 12px 2px",
+            fontSize:13, color: theme.txt, lineHeight:1.65,
+            fontFamily: isUser ? "'Inter',sans-serif" : "'DM Mono',monospace",
+          }}>
+            {m.text}
+          </div>
+        )}
+        {isSystem && (
+          <div style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"4px 0"}}>{m.text}</div>
+        )}
+        <div style={{fontSize:10,color:theme.txtMute,marginTop:3,paddingLeft:2,paddingRight:2}}>{m.ts}</div>
+      </div>
+    );
+  };
 
-      {/* Suggestions sidebar */}
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <Panel title="QUICK QUERIES" subtitle="Click to ask instantly" acc={theme.amber}>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {SUGGESTIONS.map((s,i)=>(
-              <button key={i} onClick={()=>!loading&&send(s)}
-                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?.55:1}}
-                onMouseEnter={e=>!loading&&(e.currentTarget.style.background=`${theme.amber}14`)}
-                onMouseLeave={e=>(e.currentTarget.style.background=`${theme.amber}08`)}>
-                💬 {s}
-              </button>
-            ))}
+  return (
+    <div style={{display:"flex",flexDirection:"column",height:"100%",minHeight:500}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:14,paddingBottom:12,borderBottom:`1px solid ${theme.border}`}}>
+        <div style={{width:34,height:34,borderRadius:10,background:`${theme.accent}14`,border:`1px solid ${theme.accent}40`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>💬</div>
+        <div>
+          <div style={{fontSize:13,color:theme.accent,fontWeight:700,letterSpacing:"0.02em"}}>AI CIVIC COPILOT</div>
+          <div style={{fontSize:11,color:theme.txtMute,marginTop:1}}>/ai-civic-copilot · conversational interface</div>
+        </div>
+        <div style={{marginLeft:"auto",display:"flex",alignItems:"center",gap:5,fontSize:11,color:theme.green}}>
+          <span style={{width:5,height:5,borderRadius:"50%",background:theme.green,animation:"pulseDot 2s infinite",display:"inline-block"}}/>
+          LIVE
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div style={{flex:1,overflowY:"auto",paddingRight:4,marginBottom:12}}>
+        {messages.map((m, i) => msgBubble(m, i))}
+        {loading && (
+          <div style={{display:"flex",alignItems:"center",gap:8,padding:"8px 0"}}>
+            <div style={{display:"flex",gap:4}}>
+              {[0,1,2].map(i=>(
+                <div key={i} style={{width:6,height:6,borderRadius:"50%",background:theme.accent,animation:`pulseDot 1s ease ${i*.2}s infinite`}}/>
+              ))}
+            </div>
+            <span style={{fontSize:12,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>AI thinking...</span>
           </div>
-        </Panel>
-        <Panel title="ENDPOINT" subtitle="Direct API access" acc={theme.accent}>
-          <div style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace",lineHeight:1.8,wordBreak:"break-all"}}>
-            <div style={{color:theme.accent,marginBottom:4}}>GET /ai-civic-copilot</div>
-            <div>?query=your+question</div>
-            <div style={{marginTop:8,color:theme.txtMute,opacity:.6}}>{API}/ai-civic-copilot</div>
-          </div>
-        </Panel>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* Quick prompts */}
+      <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:8}}>
+        {["water crisis","road damage","power outage","garbage issue"].map(q=>(
+          <button key={q} onClick={()=>{ setInput(q); }}
+            style={{background:`${theme.accent}08`,border:`1px solid ${theme.accent}22`,color:theme.accent,borderRadius:4,padding:"4px 9px",fontSize:11,cursor:"pointer",fontFamily:"'Inter',sans-serif",letterSpacing:"0.04em"}}>
+            {q}
+          </button>
+        ))}
+      </div>
+
+      {/* Input row */}
+      <div style={{display:"flex",gap:7}}>
+        <div style={{position:"relative",flex:1}}>
+          <span style={{position:"absolute",left:11,top:"50%",transform:"translateY(-50%)",fontSize:13,color:theme.accent,pointerEvents:"none"}}>►</span>
+          <input
+            value={input}
+            onChange={e=>setInput(e.target.value)}
+            onKeyDown={e=>e.key==="Enter"&&send()}
+            placeholder="Ask about city issues, risk scores, alerts..."
+            style={{
+              width:"100%", background:theme.inputBg,
+              border:`1px solid ${theme.inputBorder}`, borderRadius:6,
+              padding:"10px 12px 10px 28px", color:theme.inputTxt,
+              fontSize:13, fontFamily:"'DM Mono',monospace",
+              outline:"none", caretColor:theme.accent, transition:"border-color .2s",
+            }}
+            onFocus={e=>e.target.style.borderColor=theme.inputFocus}
+            onBlur={e=>e.target.style.borderColor=theme.inputBorder}
+          />
+        </div>
+        <button onClick={send} disabled={loading||!input.trim()} style={{
+          background:`linear-gradient(135deg,${theme.accent}22,${theme.green}16)`,
+          border:`1px solid ${theme.accent}40`, borderRadius:6,
+          color:theme.accent, padding:"10px 16px",
+          cursor:"pointer", fontSize:13, fontFamily:"'Inter',sans-serif",
+          opacity:(loading||!input.trim())?.5:1, transition:"opacity .2s",
+        }}>SEND</button>
       </div>
     </div>
   );
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
-// COMPLAINT MANAGER — Analytics tab
-// Officers can update complaint status: In Review → In Progress → Resolved
+// COMPLAINT MANAGER
 // ══════════════════════════════════════════════════════════════════════════════
 function ComplaintManager({ events, loading, theme, isDark }) {
   const [complaints, setComplaints] = useState([]);
-  const [filter, setFilter]         = useState("all"); // all | pending | in_progress | resolved
+  const [filter, setFilter] = useState("all");
 
-  // Sync from live events, preserve any local status overrides
   useEffect(() => {
     if (events && events.length > 0) {
       setComplaints(prev => {
@@ -1153,11 +952,7 @@ function ComplaintManager({ events, loading, theme, isDark }) {
         prev.forEach(p => { overrides[p._key] = p.status; });
         return events.map((e, i) => {
           const key = e.id || e._id || String(i);
-          return {
-            ...e,
-            _key:   key,
-            status: overrides[key] || e.status || "submitted",
-          };
+          return { ...e, _key: key, status: overrides[key] || e.status || "submitted" };
         });
       });
     }
@@ -1194,7 +989,6 @@ function ComplaintManager({ events, loading, theme, isDark }) {
           <div style={{fontSize:16,fontWeight:800,color:theme.txt}}>Complaint Management</div>
           <div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Review and update status of citizen complaints · {complaints.length} total</div>
         </div>
-        {/* Filter tabs */}
         <div style={{display:"flex",gap:6}}>
           {[
             {k:"all",        label:`All (${counts.all})`},
@@ -1209,9 +1003,7 @@ function ComplaintManager({ events, loading, theme, isDark }) {
               border:`1px solid ${filter===k ? theme.accent : theme.border}`,
               color: filter===k ? theme.accent : theme.txtMute,
               transition:"all .15s",
-            }}>
-              {label}
-            </button>
+            }}>{label}</button>
           ))}
         </div>
       </div>
@@ -1243,24 +1035,13 @@ function ComplaintManager({ events, loading, theme, isDark }) {
               }}
                 onMouseEnter={e => e.currentTarget.style.borderColor=st.color+"50"}
                 onMouseLeave={e => e.currentTarget.style.borderColor=theme.border}>
-
                 <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:10,gap:12}}>
-                  {/* Left: issue info */}
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
                       <span style={{fontSize:14,fontWeight:700,color:theme.txt}}>{issue}</span>
-                      <span style={{
-                        fontSize:11, background:`${st.color}18`, border:`1px solid ${st.color}40`,
-                        borderRadius:20, padding:"2px 10px", color:st.color, fontWeight:700, whiteSpace:"nowrap",
-                      }}>
-                        {st.label}
-                      </span>
+                      <span style={{fontSize:11,background:`${st.color}18`,border:`1px solid ${st.color}40`,borderRadius:20,padding:"2px 10px",color:st.color,fontWeight:700,whiteSpace:"nowrap"}}>{st.label}</span>
                       {risk > 0 && (
-                        <span style={{
-                          fontSize:11, background:`${isDark?"rgba(255,255,255,.04)":"rgba(0,0,0,.04)"}`,
-                          border:`1px solid ${theme.border}`, borderRadius:20,
-                          padding:"2px 10px", color:theme.txtMute, whiteSpace:"nowrap",
-                        }}>
+                        <span style={{fontSize:11,background:`${isDark?"rgba(255,255,255,.04)":"rgba(0,0,0,.04)"}`,border:`1px solid ${theme.border}`,borderRadius:20,padding:"2px 10px",color:theme.txtMute,whiteSpace:"nowrap"}}>
                           Risk: <span style={{color:isDark?"#ff8c00":"#8a4000",fontWeight:700}}>{risk}</span>
                         </span>
                       )}
@@ -1272,9 +1053,7 @@ function ComplaintManager({ events, loading, theme, isDark }) {
                       <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>#{rid}</span>
                     </div>
                   </div>
-
-                  {/* Right: action button */}
-                  {st.next && (
+                  {st.next ? (
                     <button onClick={() => updateStatus(c._key, st.next)} style={{
                       padding:"8px 14px", borderRadius:8, fontSize:12, fontWeight:700,
                       cursor:"pointer", whiteSpace:"nowrap", flexShrink:0,
@@ -1289,19 +1068,12 @@ function ComplaintManager({ events, loading, theme, isDark }) {
                       onMouseLeave={e => e.currentTarget.style.opacity="1"}>
                       {st.nextLabel}
                     </button>
-                  )}
-                  {!st.next && (
-                    <div style={{
-                      padding:"8px 14px", borderRadius:8, fontSize:12, fontWeight:700,
-                      background:"rgba(0,255,157,.08)", border:"1px solid rgba(0,255,157,.2)",
-                      color:"#00ff9d", whiteSpace:"nowrap", flexShrink:0,
-                    }}>
+                  ) : (
+                    <div style={{padding:"8px 14px",borderRadius:8,fontSize:12,fontWeight:700,background:"rgba(0,255,157,.08)",border:"1px solid rgba(0,255,157,.2)",color:"#00ff9d",whiteSpace:"nowrap",flexShrink:0}}>
                       ✓ Completed
                     </div>
                   )}
                 </div>
-
-                {/* Progress bar */}
                 <div style={{display:"flex",alignItems:"center",gap:8}}>
                   {["submitted","in_review","in_progress","resolved"].map((s,idx) => {
                     const steps = ["submitted","in_review","in_progress","resolved"];
@@ -1310,13 +1082,8 @@ function ComplaintManager({ events, loading, theme, isDark }) {
                     const stepCol = STATUS_FLOW[s]?.color || theme.accent;
                     return (
                       <div key={s} style={{display:"flex",alignItems:"center",flex:1,gap:4}}>
-                        <div style={{
-                          width:8,height:8,borderRadius:"50%",flexShrink:0,
-                          background: active ? stepCol : `${theme.border}`,
-                          boxShadow: active && isDark ? `0 0 6px ${stepCol}` : "none",
-                          transition:"all .3s",
-                        }}/>
-                        {idx < 3 && <div style={{flex:1,height:2,background:active && idx<curIdx ? stepCol : theme.border,borderRadius:1,transition:"all .3s"}}/>}
+                        <div style={{width:8,height:8,borderRadius:"50%",flexShrink:0,background:active?stepCol:`${theme.border}`,boxShadow:active&&isDark?`0 0 6px ${stepCol}`:"none",transition:"all .3s"}}/>
+                        {idx < 3 && <div style={{flex:1,height:2,background:active&&idx<curIdx?stepCol:theme.border,borderRadius:1,transition:"all .3s"}}/>}
                       </div>
                     );
                   })}
@@ -1333,21 +1100,16 @@ function ComplaintManager({ events, loading, theme, isDark }) {
   );
 }
 
-
 // ══════════════════════════════════════════════════════════════════════════════
-// CITIZEN REPORT BOARD — Analytics tab
-// Compact cards with photo, expand on click, city filter, status dropdown
+// CITIZEN REPORT BOARD
 // ══════════════════════════════════════════════════════════════════════════════
 function CitizenReportBoard({ events, loading, theme, isDark }) {
-  const [reports, setReports]         = useState([]);
-  const [cityFilter, setCityFilter]   = useState("all");
-  const [expandedId, setExpandedId]   = useState(null);
-  const [statuses, setStatuses]       = useState({});   // { [id]: "submitted"|"in_process"|"approved" }
+  const [reports, setReports]       = useState([]);
+  const [cityFilter, setCityFilter] = useState("all");
+  const [expandedId, setExpandedId] = useState(null);
+  const [statuses, setStatuses]     = useState({});
   const [fetchLoading, setFetchLoading] = useState(false);
 
-  const API = "https://civicsentinel-ai-1.onrender.com";
-
-  // Fetch on mount + whenever events update
   useEffect(() => {
     if (events && events.length > 0) {
       setReports(events);
@@ -1398,7 +1160,6 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
 
   return (
     <div>
-      {/* Header + city filter */}
       <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16,flexWrap:"wrap",gap:12}}>
         <div>
           <div style={{fontSize:16,fontWeight:800,color:theme.txt}}>Citizen Reports</div>
@@ -1408,16 +1169,8 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
         </div>
         <div style={{display:"flex",alignItems:"center",gap:10}}>
           <span style={{fontSize:12,color:theme.txtMute}}>Filter by city:</span>
-          <select
-            value={cityFilter}
-            onChange={e => { setCityFilter(e.target.value); setExpandedId(null); }}
-            style={{
-              background:theme.panel, border:`1px solid ${theme.accent}40`,
-              borderRadius:7, color:theme.accent, fontSize:13,
-              fontFamily:"'Inter',sans-serif", fontWeight:600,
-              padding:"7px 12px", cursor:"pointer", outline:"none",
-            }}
-          >
+          <select value={cityFilter} onChange={e => { setCityFilter(e.target.value); setExpandedId(null); }}
+            style={{background:theme.panel,border:`1px solid ${theme.accent}40`,borderRadius:7,color:theme.accent,fontSize:13,fontFamily:"'Inter',sans-serif",fontWeight:600,padding:"7px 12px",cursor:"pointer",outline:"none"}}>
             {cities.map(c => (
               <option key={c} value={c}>
                 {c==="all" ? `🗺 All Cities (${reports.length})` : `🏙 ${c} (${reports.filter(r=>(r.city||r.location||"")===c).length})`}
@@ -1435,59 +1188,28 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
       ) : (
         <div style={{display:"flex",flexDirection:"column",gap:8}}>
           {filtered.map((r, i) => {
-            const status   = getStatus(r, i);
-            const rid      = r.id || r._id || r.report_id || `CS${i}`;
-            const issue    = r.issue || r.category || "other";
+            const status    = getStatus(r, i);
+            const rid       = r.id || r._id || r.report_id || `CS${i}`;
+            const issue     = r.issue || r.category || "other";
             const issueIcon = ISSUE_ICONS[issue] || "📌";
-            const city     = r.city || r.location || "Unknown";
-            const ward     = r.ward || city;
-            const desc     = r.text || r.description || "—";
-            const date     = r.created_at
-              ? new Date(r.created_at).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"})
-              : r.date || "—";
-            const risk     = r.risk_score || r.risk || 0;
-            const photo    = r.photo_url || r.image_url || r.photo || null;
+            const city      = r.city || r.location || "Unknown";
+            const ward      = r.ward || city;
+            const desc      = r.text || r.description || "—";
+            const date      = r.created_at ? new Date(r.created_at).toLocaleString("en-IN",{dateStyle:"medium",timeStyle:"short"}) : r.date || "—";
+            const risk      = r.risk_score || r.risk || 0;
+            const photo     = r.photo_url || r.image_url || r.photo || null;
             const isExpanded = expandedId === rid;
             const statusOpt = STATUS_OPTS.find(s => s.value===status) || STATUS_OPTS[0];
 
             return (
-              <div key={rid}
-                style={{
-                  background:theme.panel, border:`1px solid ${theme.border}`,
-                  borderLeft:`3px solid ${statusOpt.color}`,
-                  borderRadius:10, overflow:"hidden",
-                  transition:"all .2s",
-                  boxShadow:isExpanded?`0 4px 24px rgba(0,0,0,.3)`:"none",
-                }}
-              >
-                {/* ── Compact row (always visible) ── */}
-                <div
-                  onClick={() => setExpandedId(isExpanded ? null : rid)}
-                  style={{
-                    display:"grid",
-                    gridTemplateColumns:"44px 1fr auto",
-                    alignItems:"center",
-                    gap:12, padding:"12px 16px",
-                    cursor:"pointer",
-                    transition:"background .15s",
-                  }}
+              <div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusOpt.color}`,borderRadius:10,overflow:"hidden",transition:"all .2s",boxShadow:isExpanded?`0 4px 24px rgba(0,0,0,.3)`:"none"}}>
+                <div onClick={() => setExpandedId(isExpanded ? null : rid)}
+                  style={{display:"grid",gridTemplateColumns:"44px 1fr auto",alignItems:"center",gap:12,padding:"12px 16px",cursor:"pointer",transition:"background .15s"}}
                   onMouseEnter={e => e.currentTarget.style.background=`${theme.accent}06`}
-                  onMouseLeave={e => e.currentTarget.style.background="transparent"}
-                >
-                  {/* Photo thumbnail or icon */}
-                  <div style={{
-                    width:44, height:44, borderRadius:8, overflow:"hidden",
-                    background:`${theme.accent}10`, border:`1px solid ${theme.border}`,
-                    display:"flex", alignItems:"center", justifyContent:"center",
-                    flexShrink:0,
-                  }}>
-                    {photo
-                      ? <img src={photo} alt="report" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
-                      : <span style={{fontSize:22}}>{issueIcon}</span>
-                    }
+                  onMouseLeave={e => e.currentTarget.style.background="transparent"}>
+                  <div style={{width:44,height:44,borderRadius:8,overflow:"hidden",background:`${theme.accent}10`,border:`1px solid ${theme.border}`,display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                    {photo ? <img src={photo} alt="report" style={{width:"100%",height:"100%",objectFit:"cover"}}/> : <span style={{fontSize:22}}>{issueIcon}</span>}
                   </div>
-
-                  {/* Info */}
                   <div style={{minWidth:0}}>
                     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,flexWrap:"wrap"}}>
                       <span style={{fontSize:13,fontWeight:700,color:theme.txt,textTransform:"capitalize"}}>{issueIcon} {issue}</span>
@@ -1496,47 +1218,22 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
                       {risk > 0 && <span style={{fontSize:11,color:riskCol(risk,isDark),fontWeight:700}}>Risk: {risk}</span>}
                       <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>#{rid}</span>
                     </div>
-                    <div style={{fontSize:12,color:theme.txtSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"90%"}}>
-                      {desc}
-                    </div>
+                    <div style={{fontSize:12,color:theme.txtSub,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:"90%"}}>{desc}</div>
                   </div>
-
-                  {/* Right: status dropdown + expand arrow */}
-                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}}
-                    onClick={e => e.stopPropagation()}>
-                    <select
-                      value={status}
-                      onChange={e => setStatus(r, i, e.target.value)}
-                      style={{
-                        background: `${statusOpt.color}18`,
-                        border:`1px solid ${statusOpt.color}50`,
-                        borderRadius:7, color:statusOpt.color,
-                        fontSize:12, fontWeight:700,
-                        fontFamily:"'Inter',sans-serif",
-                        padding:"6px 10px", cursor:"pointer", outline:"none",
-                        minWidth:130,
-                      }}
-                    >
+                  <div style={{display:"flex",alignItems:"center",gap:8,flexShrink:0}} onClick={e => e.stopPropagation()}>
+                    <select value={status} onChange={e => setStatus(r, i, e.target.value)}
+                      style={{background:`${statusOpt.color}18`,border:`1px solid ${statusOpt.color}50`,borderRadius:7,color:statusOpt.color,fontSize:12,fontWeight:700,fontFamily:"'Inter',sans-serif",padding:"6px 10px",cursor:"pointer",outline:"none",minWidth:130}}>
                       {STATUS_OPTS.map(opt => (
-                        <option key={opt.value} value={opt.value} style={{background:isDark?"#0a1628":"#fff",color:isDark?"#cce8ff":"#0c1828"}}>
-                          {opt.label}
-                        </option>
+                        <option key={opt.value} value={opt.value} style={{background:isDark?"#0a1628":"#fff",color:isDark?"#cce8ff":"#0c1828"}}>{opt.label}</option>
                       ))}
                     </select>
                     <span style={{fontSize:14,color:theme.txtMute,transition:"transform .2s",transform:isExpanded?"rotate(180deg)":"rotate(0deg)"}}>▼</span>
                   </div>
                 </div>
 
-                {/* ── Expanded detail ── */}
                 {isExpanded && (
-                  <div style={{
-                    borderTop:`1px solid ${theme.border}`,
-                    padding:"16px 16px 16px 72px",
-                    animation:"fadeUp .2s ease",
-                    background:isDark?"rgba(0,0,0,.2)":"rgba(0,0,0,.02)",
-                  }}>
+                  <div style={{borderTop:`1px solid ${theme.border}`,padding:"16px 16px 16px 72px",animation:"fadeUp .2s ease",background:isDark?"rgba(0,0,0,.2)":"rgba(0,0,0,.02)"}}>
                     <div style={{display:"grid",gridTemplateColumns:photo?"1fr 200px":"1fr",gap:16}}>
-                      {/* Details */}
                       <div>
                         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"10px 20px",marginBottom:12}}>
                           {[
@@ -1555,46 +1252,25 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
                         </div>
                         <div>
                           <div style={{fontSize:10,color:theme.txtMute,marginBottom:4}}>📝 Description</div>
-                          <div style={{
-                            fontSize:13, color:theme.txtSub, lineHeight:1.6,
-                            background:`${theme.accent}05`, border:`1px solid ${theme.border}`,
-                            borderRadius:7, padding:"10px 12px",
-                          }}>
-                            {desc}
-                          </div>
+                          <div style={{fontSize:13,color:theme.txtSub,lineHeight:1.6,background:`${theme.accent}05`,border:`1px solid ${theme.border}`,borderRadius:7,padding:"10px 12px"}}>{desc}</div>
                         </div>
                       </div>
-
-                      {/* Photo if available */}
                       {photo && (
                         <div>
                           <div style={{fontSize:10,color:theme.txtMute,marginBottom:6}}>📸 Photo Evidence</div>
-                          <img src={photo} alt="evidence"
-                            style={{
-                              width:"100%", borderRadius:8, border:`1px solid ${theme.border}`,
-                              objectFit:"cover", maxHeight:200,
-                            }}
-                          />
+                          <img src={photo} alt="evidence" style={{width:"100%",borderRadius:8,border:`1px solid ${theme.border}`,objectFit:"cover",maxHeight:200}}/>
                         </div>
                       )}
                     </div>
-
-                    {/* Status action bar */}
                     <div style={{display:"flex",gap:8,marginTop:14,paddingTop:12,borderTop:`1px solid ${theme.border}`}}>
                       {STATUS_OPTS.map(opt => (
-                        <button key={opt.value}
-                          onClick={() => setStatus(r, i, opt.value)}
-                          style={{
-                            padding:"7px 14px", borderRadius:7, fontSize:12,
-                            fontWeight:700, cursor:"pointer",
-                            fontFamily:"'Inter',sans-serif", transition:"all .18s",
-                            background: status===opt.value ? `${opt.color}22` : "transparent",
-                            border:`1px solid ${status===opt.value ? opt.color : theme.border}`,
-                            color: status===opt.value ? opt.color : theme.txtMute,
-                          }}
-                        >
-                          {opt.label}
-                        </button>
+                        <button key={opt.value} onClick={() => setStatus(r, i, opt.value)} style={{
+                          padding:"7px 14px", borderRadius:7, fontSize:12, fontWeight:700, cursor:"pointer",
+                          fontFamily:"'Inter',sans-serif", transition:"all .18s",
+                          background: status===opt.value ? `${opt.color}22` : "transparent",
+                          border:`1px solid ${status===opt.value ? opt.color : theme.border}`,
+                          color: status===opt.value ? opt.color : theme.txtMute,
+                        }}>{opt.label}</button>
                       ))}
                     </div>
                   </div>
@@ -1608,14 +1284,17 @@ function CitizenReportBoard({ events, loading, theme, isDark }) {
   );
 }
 
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN DASHBOARD — default export
+// ══════════════════════════════════════════════════════════════════════════════
 export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [isDark, setIsDark] = useState(true);
   const theme = isDark ? DARK : LIGHT;
   const [time, setTime] = useState(new Date());
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCity, setSelectedCity] = useState(null);
-  const [drillCity, setDrillCity] = useState(null); // city ward drill-down
-  const [myReports, setMyReports]   = useState([]);
+  const [drillCity, setDrillCity] = useState(null);
+  const [myReports, setMyReports] = useState([]);
   const [myReportsLoading, setMyReportsLoading] = useState(false);
 
   const {
@@ -1626,7 +1305,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
 
   useEffect(() => { const id=setInterval(()=>setTime(new Date()),1000); return()=>clearInterval(id); }, []);
 
-  // Fetch real events when My Reports tab opens
   useEffect(() => {
     if (activeTab !== "myreports") return;
     setMyReportsLoading(true);
@@ -1640,7 +1318,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
       .finally(() => setMyReportsLoading(false));
   }, [activeTab]);
 
-  // ── Derived ──
   const riskEntries = useMemo(() => Object.entries(riskSummary||{}).map(([city,score])=>({city,score})).sort((a,b)=>b.score-a.score), [riskSummary]);
   const trendEntries = useMemo(() => Object.entries(issueTrends||{}).map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value), [issueTrends]);
   const avgRisk = useMemo(() => riskEntries.length ? Math.round(riskEntries.reduce((s,c)=>s+c.score,0)/riskEntries.length) : 0, [riskEntries]);
@@ -1650,11 +1327,9 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const predList  = Array.isArray(predictions) ? predictions : [];
   const wsEventList = Array.isArray(wsEvents) ? wsEvents : [];
 
-  // Dashboard KPIs — /dashboard for structure, but always trust live counts over zeros
   const dashKPIs = useMemo(() => {
     const base = (dashboard && typeof dashboard === "object") ? dashboard : {};
     return {
-      // Only use /dashboard value if it's > 0, otherwise fall back to real event count
       total_complaints:  (base.total_complaints  > 0 ? base.total_complaints  : null) ?? eventList.length,
       high_risk_cities:  (base.high_risk_cities   > 0 ? base.high_risk_cities  : null) ?? criticalCount,
       active_alerts:     (base.active_alerts      > 0 ? base.active_alerts     : null) ?? alertList.length,
@@ -1662,20 +1337,16 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
     };
   }, [dashboard, eventList, criticalCount, alertList, predList]);
 
-  // Radardata for risk
   const radarData = useMemo(() => riskEntries.slice(0,6).map(c=>({city:c.city.slice(0,3).toUpperCase(),score:c.score})),[riskEntries]);
 
-  // ── Sidebar nav items ──────────────────────────────────────────────────────
   const NAV_ITEMS = [
-    { id:"overview",     icon:"⬡",  label:"Overview",        sub:"Live dashboard" },
-    { id:"intelligence", icon:"🧠",  label:"Intelligence",    sub:"AI copilot · alerts" },
-    { id:"copilot",      icon:"💬",  label:"AI Civic Copilot",sub:"/ai-civic-copilot" },
-    { id:"livestream",   icon:"⚡",  label:"Live Stream",     sub:"WebSocket events" },
-    { id:"analytics",    icon:"📊",  label:"Analytics",       sub:"Risk · events · trends" },
-    { id:"graph",        icon:"🕸",  label:"Knowledge Graph", sub:"Entity connections" },
+    { id:"overview",     icon:"⬡",  label:"Overview",         sub:"Live dashboard" },
+    { id:"intelligence", icon:"🧠",  label:"Intelligence",     sub:"AI copilot · alerts" },
+    { id:"copilot",      icon:"💬",  label:"AI Civic Copilot", sub:"/ai-civic-copilot" },
+    { id:"livestream",   icon:"⚡",  label:"Live Stream",      sub:"WebSocket events" },
+    { id:"analytics",    icon:"📊",  label:"Analytics",        sub:"Risk · events · trends" },
+    { id:"graph",        icon:"🕸",  label:"Knowledge Graph",  sub:"Entity connections" },
   ];
-
-
 
   const userInitial = user && user.provider === "google" ? "G"
     : user && user.name ? user.name[0].toUpperCase()
@@ -1696,17 +1367,16 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
         @keyframes skeletonPulse{0%,100%{opacity:.4}50%{opacity:.9}}
         @keyframes pulse{0%,100%{opacity:.5}50%{opacity:1}}
         @keyframes slideIn{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:translateX(0)}}
-        @keyframes sidebarGlow{0%,100%{box-shadow:inset 0 0 0 transparent}50%{box-shadow:inset 2px 0 12px ${theme.accent}12}}
+        @keyframes spin{to{transform:rotate(360deg)}}
         input::placeholder{color:${theme.txtMute};}
       `}</style>
 
       <Particles isDark={isDark}/>
       {isDark&&<div style={{position:"fixed",inset:0,zIndex:1,pointerEvents:"none",background:"repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.02) 2px,rgba(0,0,0,0.02) 4px)"}}/>}
 
-      {/* ══ ROOT LAYOUT: sidebar + main ══ */}
       <div style={{position:"relative",zIndex:2,display:"flex",minHeight:"100vh",background:theme.bgGrad,transition:"background .5s"}}>
 
-        {/* ════════════════ SIDEBAR ════════════════ */}
+        {/* ════ SIDEBAR ════ */}
         <aside style={{
           width:220, flexShrink:0, height:"100vh", position:"sticky", top:0,
           background: isDark?"rgba(2,5,14,0.97)":"rgba(248,252,255,0.98)",
@@ -1716,7 +1386,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
           zIndex:110, transition:"background .4s",
           boxShadow: isDark?"2px 0 32px rgba(0,0,0,.5)":"2px 0 20px rgba(0,0,0,.06)",
         }}>
-          {/* Logo block */}
           <div style={{padding:"20px 18px 16px",borderBottom:`1px solid ${theme.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:4}}>
               <div style={{position:"relative",flexShrink:0}}>
@@ -1728,15 +1397,13 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 <div style={{fontSize:9,color:theme.txtMute,letterSpacing:"0.08em",marginTop:1}}>DIGITAL DEMOCRACY</div>
               </div>
             </div>
-            {/* Live clock */}
             <div style={{fontSize:18,fontFamily:"'DM Mono',monospace",fontWeight:900,color:theme.accent,letterSpacing:"0.02em",marginTop:6,lineHeight:1}}>{time.toLocaleTimeString("en-US",{hour12:false})}</div>
             <div style={{fontSize:10,color:theme.txtMute,marginTop:2}}>{lastSync?`SYNCED ${lastSync.toLocaleTimeString()}`:"CONNECTING…"}</div>
           </div>
 
-          {/* ── Live stat pills ── */}
           <div style={{padding:"12px 14px",borderBottom:`1px solid ${theme.border}`,display:"flex",flexDirection:"column",gap:6}}>
             {[
-              {l:"AVG RISK",  v:loading?"…":avgRisk||"—",          c:riskCol(avgRisk,isDark)},
+              {l:"AVG RISK",  v:loading?"…":avgRisk||"—",              c:riskCol(avgRisk,isDark)},
               {l:"CRITICAL",  v:loading?"…":`${criticalCount} CITIES`, c:theme.red},
               {l:"ALERTS",    v:loading?"…":`${alertList.length} ACTIVE`, c:theme.amber},
             ].map(({l,v,c})=>(
@@ -1747,32 +1414,23 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             ))}
           </div>
 
-          {/* ── Nav items ── */}
           <nav style={{flex:1,padding:"10px 10px",display:"flex",flexDirection:"column",gap:3,overflowY:"auto"}}>
-            {NAV_ITEMS.map(item=>{
-              const isActive = item.action ? false : activeTab===item.id;
-              const isReport = item.id==="report";
+            {NAV_ITEMS.map(item => {
+              const isActive = activeTab === item.id;
               return (
-                <button key={item.id}
-                  onClick={()=>{ if(isReport){ onReport?.(); } else { setActiveTab(item.id); }}}
-                  style={{
-                    width:"100%", padding:"10px 12px", borderRadius:9, border:"none",
-                    background: isReport
-                      ? "linear-gradient(135deg,rgba(0,255,157,0.14),rgba(0,200,255,0.1))"
-                      : isActive ? `${theme.accent}14` : "transparent",
-                    borderLeft: isActive ? `3px solid ${theme.accent}` : isReport ? "3px solid rgba(0,255,157,0.5)" : "3px solid transparent",
-                    cursor:"pointer", textAlign:"left", transition:"all .18s",
-                    display:"flex", alignItems:"center", gap:11,
-                    boxShadow: isActive ? `inset 0 0 20px ${theme.accent}08` : "none",
-                  }}
-                  onMouseEnter={e=>{ if(!isActive&&!isReport) e.currentTarget.style.background=`${theme.accent}09`; }}
-                  onMouseLeave={e=>{ if(!isActive&&!isReport) e.currentTarget.style.background="transparent"; }}>
-                  <span style={{
-                    fontSize:16, flexShrink:0, width:24, textAlign:"center",
-                    filter: isActive ? "none" : "grayscale(20%)",
-                  }}>{item.icon}</span>
+                <button key={item.id} onClick={() => setActiveTab(item.id)} style={{
+                  width:"100%", padding:"10px 12px", borderRadius:9, border:"none",
+                  background: isActive ? `${theme.accent}14` : "transparent",
+                  borderLeft: isActive ? `3px solid ${theme.accent}` : "3px solid transparent",
+                  cursor:"pointer", textAlign:"left", transition:"all .18s",
+                  display:"flex", alignItems:"center", gap:11,
+                  boxShadow: isActive ? `inset 0 0 20px ${theme.accent}08` : "none",
+                }}
+                  onMouseEnter={e=>{ if(!isActive) e.currentTarget.style.background=`${theme.accent}09`; }}
+                  onMouseLeave={e=>{ if(!isActive) e.currentTarget.style.background="transparent"; }}>
+                  <span style={{fontSize:16,flexShrink:0,width:24,textAlign:"center"}}>{item.icon}</span>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:12.5,fontWeight:isActive||isReport?700:500,color:isReport?theme.green:isActive?theme.accent:theme.txt,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</div>
+                    <div style={{fontSize:12.5,fontWeight:isActive?700:500,color:isActive?theme.accent:theme.txt,lineHeight:1.2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.label}</div>
                     <div style={{fontSize:10,color:theme.txtMute,marginTop:1,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{item.sub}</div>
                   </div>
                   {isActive && <div style={{width:5,height:5,borderRadius:"50%",background:theme.accent,flexShrink:0}}/>}
@@ -1781,18 +1439,14 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             })}
           </nav>
 
-          {/* ── User section at bottom ── */}
           <div style={{padding:"12px 14px",borderTop:`1px solid ${theme.border}`}}>
             <div style={{display:"flex",alignItems:"center",gap:9,marginBottom:10}}>
-              <div style={{width:32,height:32,borderRadius:"50%",background:`${theme.accent}18`,border:`1px solid ${theme.accent}35`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>
-                {userInitial}
-              </div>
+              <div style={{width:32,height:32,borderRadius:"50%",background:`${theme.accent}18`,border:`1px solid ${theme.accent}35`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,flexShrink:0}}>{userInitial}</div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontSize:12,fontWeight:600,color:theme.txt,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.name||"Citizen"}</div>
                 <div style={{fontSize:10,color:theme.txtMute,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{user?.email||"Guest"}</div>
               </div>
             </div>
-            {/* Controls row */}
             <div style={{display:"flex",gap:6,alignItems:"center"}}>
               <Toggle isDark={isDark} onToggle={()=>setIsDark(d=>!d)}/>
               <div style={{flex:1}}/>
@@ -1807,12 +1461,10 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
           </div>
         </aside>
 
-        {/* ════════════════ MAIN CONTENT ════════════════ */}
+        {/* ════ MAIN CONTENT ════ */}
         <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",minHeight:"100vh"}}>
 
-          {/* Slim top bar */}
           <header style={{height:52,display:"flex",alignItems:"center",justifyContent:"space-between",padding:"0 28px",borderBottom:`1px solid ${theme.border}`,background:isDark?"rgba(2,6,9,0.72)":"rgba(248,252,255,0.72)",backdropFilter:"blur(20px)",position:"sticky",top:0,zIndex:90,flexShrink:0}}>
-            {/* Breadcrumb */}
             <div style={{display:"flex",alignItems:"center",gap:8}}>
               <span style={{fontSize:10,color:theme.txtMute,letterSpacing:"0.06em"}}>CIVICSENTINEL</span>
               <span style={{color:theme.txtMute,fontSize:10}}>/</span>
@@ -1820,7 +1472,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                 {NAV_ITEMS.find(n=>n.id===activeTab)?.label?.toUpperCase()||"OVERVIEW"}
               </span>
             </div>
-            {/* Status indicators — REST + WebSocket */}
             <div style={{display:"flex",alignItems:"center",gap:14}}>
               <div style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:connected?theme.green:theme.red,fontFamily:"'DM Mono',monospace"}}>
                 <span style={{width:6,height:6,borderRadius:"50%",background:connected?theme.green:theme.red,animation:"pulseDot 2s infinite",display:"inline-block"}}/>
@@ -1838,7 +1489,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             </div>
           </header>
 
-          {/* Banners */}
           {loading && !connected && (
             <div style={{margin:"10px 24px 0",padding:"9px 16px",background:`${theme.amber}10`,border:`1px solid ${theme.amber}28`,borderRadius:6,display:"flex",alignItems:"center",gap:10,fontSize:13,color:theme.amber,fontFamily:"'DM Mono',monospace",animation:"fadeUp .3s ease"}}>
               <span style={{animation:"blink 1s infinite"}}>⏳</span>
@@ -1852,471 +1502,423 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
             </div>
           )}
 
-        <div style={{padding:"20px 28px 36px",animation:"fadeUp .5s ease",flex:1}}>
+          <div style={{padding:"20px 28px 36px",animation:"fadeUp .5s ease",flex:1}}>
 
-          {/* ════════════ OVERVIEW ════════════ */}
-          {activeTab==="overview" && (<>
-            {/* KPI Strip — data from /dashboard endpoint + derived */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:16}}>
-              {[
-                {l:"TOTAL COMPLAINTS",  v:loading?null:(dashKPIs.total_complaints||eventList.length), sub:"From /dashboard",              col:theme.accent},
-                {l:"AVG RISK INDEX",    v:loading?null:avgRisk,                                        sub:"Across monitored cities",       col:riskCol(avgRisk,isDark)},
-                {l:"HIGH RISK CITIES",  v:loading?null:(dashKPIs.high_risk_cities||criticalCount),     sub:"Score ≥ 70 · critical",         col:theme.red},
-                {l:"ACTIVE ALERTS",     v:loading?null:(dashKPIs.active_alerts||alertList.length),     sub:`${alertList.filter(a=>(a||"").toLowerCase().includes("high")).length} HIGH RISK`, col:theme.amber},
-                {l:"AI PREDICTIONS",    v:loading?null:(dashKPIs.predictions_count||predList.length),  sub:"Crisis forecasts · /predictions",col:theme.green},
-              ].map((k,i)=>(
-                <Panel key={k.l} acc={k.col} tag={`N-${i+1}`} style={{animation:`fadeUp .4s ease ${i*.07}s both`}}>
-                  <div style={{fontSize:14,fontFamily:"'Inter',sans-serif",color:theme.txtMute,letterSpacing:"0.05em",marginBottom:8}}>{k.l}</div>
-                  {k.v===null
-                    ? <><Skeleton h={36} mb={8}/><Skeleton h={10} w="60%"/></>
-                    : <><div style={{fontSize:36,fontWeight:900,color:k.col,fontFamily:"'Inter',sans-serif",lineHeight:1}}>{k.v}</div>
-                       <div style={{fontSize:14,color:theme.txtMute,marginTop:6}}>{k.sub}</div></>
-                  }
-                  <div style={{display:"flex",gap:1.5,alignItems:"flex-end",height:18,marginTop:10}}>
-                    {Array.from({length:20},(_,j)=>(<div key={j} style={{flex:1,height:`${20+Math.abs(Math.sin(j*.65))*(k.v||30)}%`,maxHeight:"100%",background:`${k.col}45`,borderRadius:"1px 1px 0 0"}}/>))}
-                  </div>
-                </Panel>
-              ))}
-            </div>
-
-            {/* 3-col main */}
-            <div style={{display:"grid",gridTemplateColumns:"1.1fr .95fr 290px",gap:12,marginBottom:12}}>
-              {/* ── HEATMAP PANEL ── */}
-              <Panel
-                title={drillCity ? `${drillCity.toUpperCase()} — WARD RISK MAP` : "INDIA RISK HEATMAP"}
-                subtitle={drillCity ? `8 wards · risk derived from live data · hover for details` : "LIVE · /risk-summary · click a city to drill into wards"}
-                acc={theme.accent}
-                tag={
-                  // Dropdown replaces the GEO tag
-                  <select
-                    value={drillCity || ""}
-                    onChange={e => setDrillCity(e.target.value || null)}
-                    style={{
-                      background: theme.panel,
-                      border: `1px solid ${theme.accent}40`,
-                      borderRadius: 4,
-                      color: theme.accent,
-                      fontSize: 11,
-                      fontFamily: "'Inter',sans-serif",
-                      fontWeight: 600,
-                      padding: "3px 8px",
-                      cursor: "pointer",
-                      outline: "none",
-                    }}
-                  >
-                    <option value="">🗺 India Overview</option>
-                    {Object.keys(riskSummary||{}).filter(c => WARD_GEOJSON[c]).map(c => (
-                      <option key={c} value={c}>📍 {c} — Risk: {riskSummary[c]}</option>
-                    ))}
-                  </select>
-                }
-              >
-                {loading && !riskEntries.length ? (
-                  <div style={{height:320}}><Skeleton h={320}/></div>
-                ) : drillCity ? (
-                  // ── WARD DRILL-DOWN VIEW ──
-                  <div style={{animation:"fadeUp .3s ease"}}>
-                    {/* Back button + city risk badge */}
-                    <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
-                      <button onClick={()=>setDrillCity(null)}
-                        style={{background:`${theme.accent}12`,border:`1px solid ${theme.accent}30`,color:theme.accent,
-                          borderRadius:5,padding:"5px 12px",cursor:"pointer",fontSize:12,
-                          fontFamily:"'Inter',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
-                        ← Back to India
-                      </button>
-                      {riskSummary[drillCity] !== undefined && (
-                        <div style={{display:"flex",alignItems:"center",gap:8}}>
-                          <span style={{fontSize:12,color:theme.txtMute,fontFamily:"'Inter',sans-serif"}}>City Risk:</span>
-                          <span style={{fontSize:15,fontWeight:700,color:riskCol(riskSummary[drillCity],isDark),
-                            fontFamily:"'DM Mono',monospace"}}>{riskSummary[drillCity]}/100</span>
-                          <span style={{fontSize:11,color:riskCol(riskSummary[drillCity],isDark),
-                            background:`${riskCol(riskSummary[drillCity],isDark)}15`,
-                            border:`1px solid ${riskCol(riskSummary[drillCity],isDark)}30`,
-                            borderRadius:4,padding:"2px 8px",fontFamily:"'Inter',sans-serif",fontWeight:600}}>
-                            {riskLabel(riskSummary[drillCity])}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    {/* Ward SVG map */}
-                    <CityWardMap
-                      cityKey={drillCity}
-                      cityRisk={riskSummary[drillCity] || 55}
-                      isDark={isDark}
-                    />
-                    {/* Ward risk table below map */}
-                    <div style={{marginTop:12,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
-                      {WARD_GEOJSON[drillCity] && WARD_GEOJSON[drillCity].features.map(f => {
-                        const cityScore = riskSummary[drillCity] || 0;
-                        const risk = cityScore > 0 ? Math.min(99, Math.max(5, cityScore + f.properties.offset)) : 0;
-                        const col  = risk > 0 ? riskCol(risk, isDark) : "rgba(150,180,200,0.35)";
-                        return (
-                          <div key={f.properties.name} style={{padding:"7px 10px",background:risk>0?`${col}10`:"rgba(255,255,255,.03)",
-                            border:`1px solid ${risk>0?col+"28":"rgba(255,255,255,.06)"}`,borderRadius:5,textAlign:"center"}}>
-                            <div style={{fontSize:11,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{f.properties.name}</div>
-                            <div style={{fontSize:14,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace"}}>{risk > 0 ? risk : "—"}</div>
-                            <div style={{width:"100%",height:3,borderRadius:2,background:"rgba(255,255,255,.06)",marginTop:5}}>
-                              <div style={{height:"100%",width:`${risk}%`,background:col,borderRadius:2}}/>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  // ── INDIA OVERVIEW ──
-                  <IndiaMap
-                    riskSummary={riskSummary}
-                    isDark={isDark}
-                    onCitySelect={city => setDrillCity((WARD_GEOJSON[city] && riskSummary[city] !== undefined) ? city : null)}
-                    drillCity={drillCity}
-                  />
-                )}
-              </Panel>
-
-              {/* Charts column */}
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                <Panel title="ISSUE TRENDS" subtitle="/issue-trends · civic category counts" acc={theme.amber} tag="BAR">
-                  {loading && !trendEntries.length
-                    ? <Skeleton h={148}/>
-                    : trendEntries.length
-                      ? <ResponsiveContainer width="100%" height={148}>
-                          <BarChart data={trendEntries} margin={{top:4,right:4,bottom:0,left:-26}}>
-                            <CartesianGrid strokeDasharray="2 4" stroke={theme.grid} vertical={false}/>
-                            <XAxis dataKey="name" tick={{fill:theme.tick,fontSize:13,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}/>
-                            <YAxis tick={{fill:theme.tick,fontSize:11}} axisLine={false} tickLine={false}/>
-                            <Tooltip content={<CyberTip/>}/>
-                            <Bar dataKey="value" name="COUNT" radius={[4,4,0,0]}>
-                              {trendEntries.map((_,i)=><Cell key={i} fill={[theme.accent,theme.amber,theme.red,theme.green,theme.accent][i%5]}/>)}
-                            </Bar>
-                          </BarChart>
-                        </ResponsiveContainer>
-                      : <div style={{height:148,display:"flex",alignItems:"center",justifyContent:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for data…</div>
-                  }
-                </Panel>
-
-                <Panel title="CITY RISK RADAR" subtitle="/risk-summary · multi-axis view" acc={theme.accent}>
-                  {loading && !radarData.length
-                    ? <Skeleton h={148}/>
-                    : radarData.length
-                      ? <ResponsiveContainer width="100%" height={148}>
-                          <RadarChart data={radarData} margin={{top:0,right:20,bottom:0,left:20}}>
-                            <PolarGrid stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.06)"}/>
-                            <PolarAngleAxis dataKey="city" tick={{fill:theme.tick,fontSize:13,fontFamily:"'Inter',sans-serif"}}/>
-                            <Radar name="Risk" dataKey="score" stroke={theme.accent} fill={theme.accent} fillOpacity={.12} strokeWidth={1.5}/>
-                            <Tooltip content={<CyberTip/>}/>
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      : <div style={{height:148,display:"flex",alignItems:"center",justifyContent:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Loading…</div>
-                  }
-                </Panel>
-              </div>
-
-              {/* Alert panel */}
-              <Panel title="AI ALERT FEED" subtitle={`/alerts · ${alertList.length} active`} acc={theme.red} tag="LIVE">
-                <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:490,overflowY:"auto"}}>
-                  {loading && !alertList.length
-                    ? Array.from({length:4},(_,i)=><Skeleton key={i} h={60} mb={0}/>)
-                    : alertList.length
-                      ? alertList.map((a,i)=>{
-                          const txt = typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));
-                          const {col,label} = severityFromText(txt,theme);
-                          return (
-                            <div key={i} style={{padding:"9px 11px",background:`${col}08`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:3,animation:`fadeUp .3s ease ${i*.05}s both`}}>
-                              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                                {col===theme.red&&<span style={{width:5,height:5,borderRadius:"50%",background:theme.red,display:"inline-block",animation:"pulseDot 1s infinite"}}/>}
-                                <span style={{fontSize:13,fontFamily:"'Inter',sans-serif",color:col,letterSpacing:"0.01em"}}>{label}</span>
-                              </div>
-                              <div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div>
-                            </div>
-                          );
-                        })
-                      : <div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"20px 0",textAlign:"center"}}>⏳ No alerts yet…</div>
-                  }
-                </div>
-              </Panel>
-            </div>
-
-            {/* Bottom row */}
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-              {/* AI Copilot */}
-              <Panel title="AI CIVIC COPILOT" subtitle="REAL RAG+LLM · /ai-insight endpoint" acc={theme.green} tag="AI-LIVE" style={{minHeight:420}}>
-                <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
-              </Panel>
-
-              {/* Predictions + event mini */}
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} forecasts`} acc={theme.amber}>
-                  <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:200,overflowY:"auto"}}>
-                    {loading && !predList.length
-                      ? Array.from({length:3},(_,i)=><Skeleton key={i} h={48} mb={0}/>)
-                      : predList.length
-                        ? predList.map((p,i)=>{
-                            const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));
-                            return (
-                              <div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9,animation:`fadeUp .3s ease ${i*.07}s both`}}>
-                                <span style={{fontSize:14,flexShrink:0}}>🔮</span>
-                                <div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div>
-                              </div>
-                            );
-                          })
-                        : <div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading predictions…</div>
+            {/* ════ OVERVIEW ════ */}
+            {activeTab==="overview" && (<>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:12,marginBottom:16}}>
+                {[
+                  {l:"TOTAL COMPLAINTS",  v:loading?null:(dashKPIs.total_complaints||eventList.length), sub:"From /dashboard",              col:theme.accent},
+                  {l:"AVG RISK INDEX",    v:loading?null:avgRisk,                                        sub:"Across monitored cities",       col:riskCol(avgRisk,isDark)},
+                  {l:"HIGH RISK CITIES",  v:loading?null:(dashKPIs.high_risk_cities||criticalCount),     sub:"Score ≥ 70 · critical",         col:theme.red},
+                  {l:"ACTIVE ALERTS",     v:loading?null:(dashKPIs.active_alerts||alertList.length),     sub:`${alertList.filter(a=>(a||"").toLowerCase().includes("high")).length} HIGH RISK`, col:theme.amber},
+                  {l:"AI PREDICTIONS",    v:loading?null:(dashKPIs.predictions_count||predList.length),  sub:"Crisis forecasts · /predictions",col:theme.green},
+                ].map((k,i)=>(
+                  <Panel key={k.l} acc={k.col} tag={`N-${i+1}`} style={{animation:`fadeUp .4s ease ${i*.07}s both`}}>
+                    <div style={{fontSize:14,fontFamily:"'Inter',sans-serif",color:theme.txtMute,letterSpacing:"0.05em",marginBottom:8}}>{k.l}</div>
+                    {k.v===null
+                      ? <><Skeleton h={36} mb={8}/><Skeleton h={10} w="60%"/></>
+                      : <><div style={{fontSize:36,fontWeight:900,color:k.col,fontFamily:"'Inter',sans-serif",lineHeight:1}}>{k.v}</div>
+                         <div style={{fontSize:14,color:theme.txtMute,marginTop:6}}>{k.sub}</div></>
                     }
-                  </div>
-                </Panel>
-
-                {/* Mini event feed preview */}
-                <Panel title="RECENT EVENTS" subtitle={`/events · latest ${Math.min(eventList.length,5)} of ${eventList.length}`} acc={theme.accent}>
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {loading && !eventList.length
-                      ? Array.from({length:3},(_,i)=><Skeleton key={i} h={42} mb={0}/>)
-                      : eventList.slice(0,5).map((e,i)=>{
-                          const loc = e.location||e.city||"—"; const issue=e.issue||"—";
-                          const risk=e.risk_score??e.risk??0; const sent=e.sentiment??0;
-                          return (
-                            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${theme.border}22`,animation:`fadeUp .3s ease ${i*.05}s both`}}>
-                              <div style={{width:6,height:6,borderRadius:"50%",background:riskCol(risk,isDark),flexShrink:0,boxShadow:isDark?`0 0 5px ${riskCol(risk,isDark)}`:"none"}}/>
-                              <div style={{flex:1}}>
-                                <div style={{fontSize:13,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700}}>{loc} <span style={{color:theme.txtMute,fontWeight:400,fontSize:11}}>— {issue}</span></div>
-                                {e.text&&<div style={{fontSize:14,color:theme.txtMute,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{e.text}</div>}
-                              </div>
-                              <div style={{fontSize:13,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700,flexShrink:0}}>{risk}</div>
-                              <div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div>
-                            </div>
-                          );
-                        })
-                    }
-                  </div>
-                </Panel>
-              </div>
-            </div>
-          </>)}
-
-          {/* ════════════ INTELLIGENCE ════════════ */}
-          {activeTab==="intelligence" && (
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}>
-              <Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}>
-                <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
-              </Panel>
-              <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}>
-                  <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>
-                    {predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})}
-                    {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}
-                  </div>
-                </Panel>
-                <Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}>
-                  <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>
-                    {alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}
-                    {!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}
-                  </div>
-                </Panel>
-              </div>
-            </div>
-          )}
-
-          {/* ════════════ ANALYTICS ════════════ */}
-          {activeTab==="analytics" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <CitizenReportBoard events={eventList} loading={loading} theme={theme} isDark={isDark}/>
-            </div>
-          )}
-
-          {/* ════════════ KNOWLEDGE GRAPH ════════════ */}
-          {activeTab==="graph" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">
-                {loading&&!knowledgeGraph
-                  ? <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
-                      <div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div>
-                      <Skeleton h={200}/>
+                    <div style={{display:"flex",gap:1.5,alignItems:"flex-end",height:18,marginTop:10}}>
+                      {Array.from({length:20},(_,j)=>(<div key={j} style={{flex:1,height:`${20+Math.abs(Math.sin(j*.65))*(k.v||30)}%`,maxHeight:"100%",background:`${k.col}45`,borderRadius:"1px 1px 0 0"}}/>))}
                     </div>
-                  : <KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>
-                }
-              </Panel>
-              {/* Raw data dump */}
-              {knowledgeGraph && (
-                <div style={{marginTop:12}}>
-                  <Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}>
-                    <pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>
-                      {JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}
-                    </pre>
                   </Panel>
-                </div>
-              )}
-            </div>
-          )}
-          {/* ════════════ MY REPORTS ════════════ */}
-          {activeTab==="myreports" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-                <div>
-                  <div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div>
-                  <div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div>
-                </div>
-                <button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
-                  📸 New Report
-                </button>
-              </div>
-
-              {/* Status legend */}
-              <div style={{display:"flex",gap:12,marginBottom:16}}>
-                {[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(
-                  <div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}>
-                    <div style={{width:8,height:8,borderRadius:"50%",background:c}}/>
-                    {l}
-                  </div>
                 ))}
               </div>
 
-              {myReportsLoading ? (
-                <div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
-                  <div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/>
-                  <span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span>
-                </div>
-              ) : myReports.length === 0 ? (
-                <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
-                  <div style={{fontSize:32,marginBottom:12}}>📭</div>
-                  No reports yet. Submit complaints from the Citizen App.
-                </div>
-              ) : (
-                <div style={{display:"flex",flexDirection:"column",gap:10}}>
-                  {myReports.map((r,i)=>{
-                    const status = r.status || "submitted";
-                    const statusColor = status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;
-                    const statusLabel = status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";
-                    const progress    = status==="resolved"?100:status==="in_progress"?55:20;
-                    const issue = r.issue || r.text || "Civic Issue";
-                    const ward  = r.ward  || r.city || r.location || "—";
-                    const date  = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : r.date || "Recent";
-                    const risk  = r.risk_score || r.risk || 0;
-                    const rid   = r.id || r._id || r.report_id || ("CS"+i);
-                    return (
-                      <div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
-                        onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
-                        onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
-                        <div>
-                          <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
-                            <span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span>
-                            <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span>
-                          </div>
-                          <div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>
-                            {[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(
-                              <div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
-                            ))}
-                          </div>
+              <div style={{display:"grid",gridTemplateColumns:"1.1fr .95fr 290px",gap:12,marginBottom:12}}>
+                <Panel
+                  title={drillCity ? `${drillCity.toUpperCase()} — WARD RISK MAP` : "INDIA RISK HEATMAP"}
+                  subtitle={drillCity ? "8 wards · risk derived from live data · hover for details" : "LIVE · /risk-summary · click a city to drill into wards"}
+                  acc={theme.accent}
+                  tag={
+                    <select value={drillCity || ""} onChange={e => setDrillCity(e.target.value || null)}
+                      style={{background:theme.panel,border:`1px solid ${theme.accent}40`,borderRadius:4,color:theme.accent,fontSize:11,fontFamily:"'Inter',sans-serif",fontWeight:600,padding:"3px 8px",cursor:"pointer",outline:"none"}}>
+                      <option value="">🗺 India Overview</option>
+                      {Object.keys(riskSummary||{}).filter(c => WARD_GEOJSON[c]).map(c => (
+                        <option key={c} value={c}>📍 {c} — Risk: {riskSummary[c]}</option>
+                      ))}
+                    </select>
+                  }
+                >
+                  {loading && !riskEntries.length ? (
+                    <div style={{height:320}}><Skeleton h={320}/></div>
+                  ) : drillCity ? (
+                    <div style={{animation:"fadeUp .3s ease"}}>
+                      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
+                        <button onClick={()=>setDrillCity(null)}
+                          style={{background:`${theme.accent}12`,border:`1px solid ${theme.accent}30`,color:theme.accent,borderRadius:5,padding:"5px 12px",cursor:"pointer",fontSize:12,fontFamily:"'Inter',sans-serif",fontWeight:600,display:"flex",alignItems:"center",gap:6}}>
+                          ← Back to India
+                        </button>
+                        {riskSummary[drillCity] !== undefined && (
                           <div style={{display:"flex",alignItems:"center",gap:8}}>
-                            <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
-                              <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
-                            </div>
-                            <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                            <span style={{fontSize:12,color:theme.txtMute}}>City Risk:</span>
+                            <span style={{fontSize:15,fontWeight:700,color:riskCol(riskSummary[drillCity],isDark),fontFamily:"'DM Mono',monospace"}}>{riskSummary[drillCity]}/100</span>
+                            <span style={{fontSize:11,color:riskCol(riskSummary[drillCity],isDark),background:`${riskCol(riskSummary[drillCity],isDark)}15`,border:`1px solid ${riskCol(riskSummary[drillCity],isDark)}30`,borderRadius:4,padding:"2px 8px",fontFamily:"'Inter',sans-serif",fontWeight:600}}>
+                              {riskLabel(riskSummary[drillCity])}
+                            </span>
                           </div>
-                        </div>
-                        <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
-                          <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span>
-                          <div style={{width:42,height:42,position:"relative"}}>
-                            <svg width="42" height="42">
-                              <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
-                              <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
-                                strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
-                                strokeDashoffset="26.7" strokeLinecap="round"/>
-                            </svg>
-                            <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
-                          </div>
-                        </div>
+                        )}
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
+                      <CityWardMap cityKey={drillCity} cityRisk={riskSummary[drillCity] || 55} isDark={isDark}/>
+                      <div style={{marginTop:12,display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+                        {WARD_GEOJSON[drillCity] && WARD_GEOJSON[drillCity].features.map(f => {
+                          const cityScore = riskSummary[drillCity] || 0;
+                          const risk = cityScore > 0 ? Math.min(99, Math.max(5, cityScore + f.properties.offset)) : 0;
+                          const col  = risk > 0 ? riskCol(risk, isDark) : "rgba(150,180,200,0.35)";
+                          return (
+                            <div key={f.properties.name} style={{padding:"7px 10px",background:risk>0?`${col}10`:"rgba(255,255,255,.03)",border:`1px solid ${risk>0?col+"28":"rgba(255,255,255,.06)"}`,borderRadius:5,textAlign:"center"}}>
+                              <div style={{fontSize:11,color:theme.txtMute,marginBottom:3}}>{f.properties.name}</div>
+                              <div style={{fontSize:14,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace"}}>{risk > 0 ? risk : "—"}</div>
+                              <div style={{width:"100%",height:3,borderRadius:2,background:"rgba(255,255,255,.06)",marginTop:5}}>
+                                <div style={{height:"100%",width:`${risk}%`,background:col,borderRadius:2}}/>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <IndiaMap riskSummary={riskSummary} isDark={isDark}
+                      onCitySelect={city => setDrillCity((WARD_GEOJSON[city] && riskSummary[city] !== undefined) ? city : null)}
+                      drillCity={drillCity}/>
+                  )}
+                </Panel>
 
-          {/* ════════════ AI CIVIC COPILOT (/ai-civic-copilot) ════════════ */}
-          {activeTab==="copilot" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <AICivicCopilotPanel theme={theme} isDark={isDark}
-                riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/>
-            </div>
-          )}
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <Panel title="ISSUE TRENDS" subtitle="/issue-trends · civic category counts" acc={theme.amber} tag="BAR">
+                    {loading && !trendEntries.length
+                      ? <Skeleton h={148}/>
+                      : trendEntries.length
+                        ? <ResponsiveContainer width="100%" height={148}>
+                            <BarChart data={trendEntries} margin={{top:4,right:4,bottom:0,left:-26}}>
+                              <CartesianGrid strokeDasharray="2 4" stroke={theme.grid} vertical={false}/>
+                              <XAxis dataKey="name" tick={{fill:theme.tick,fontSize:13,fontFamily:"'DM Mono',monospace"}} axisLine={false} tickLine={false}/>
+                              <YAxis tick={{fill:theme.tick,fontSize:11}} axisLine={false} tickLine={false}/>
+                              <Tooltip content={<CyberTip/>}/>
+                              <Bar dataKey="value" name="COUNT" radius={[4,4,0,0]}>
+                                {trendEntries.map((_,i)=><Cell key={i} fill={[theme.accent,theme.amber,theme.red,theme.green,theme.accent][i%5]}/>)}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        : <div style={{height:148,display:"flex",alignItems:"center",justifyContent:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for data…</div>
+                    }
+                  </Panel>
 
-          {/* ════════════ LIVE WEBSOCKET STREAM ════════════ */}
-          {activeTab==="livestream" && (
-            <div style={{animation:"slideIn .4s ease"}}>
-              <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
-                <div style={{display:"flex",alignItems:"center",gap:7}}>
-                  <span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/>
-                  <span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span>
+                  <Panel title="CITY RISK RADAR" subtitle="/risk-summary · multi-axis view" acc={theme.accent}>
+                    {loading && !radarData.length
+                      ? <Skeleton h={148}/>
+                      : radarData.length
+                        ? <ResponsiveContainer width="100%" height={148}>
+                            <RadarChart data={radarData} margin={{top:0,right:20,bottom:0,left:20}}>
+                              <PolarGrid stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.06)"}/>
+                              <PolarAngleAxis dataKey="city" tick={{fill:theme.tick,fontSize:13,fontFamily:"'Inter',sans-serif"}}/>
+                              <Radar name="Risk" dataKey="score" stroke={theme.accent} fill={theme.accent} fillOpacity={.12} strokeWidth={1.5}/>
+                              <Tooltip content={<CyberTip/>}/>
+                            </RadarChart>
+                          </ResponsiveContainer>
+                        : <div style={{height:148,display:"flex",alignItems:"center",justifyContent:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Loading…</div>
+                    }
+                  </Panel>
                 </div>
-                <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1.onrender.com/ws/events</span>
-                {wsEventList.length > 0 && (
-                  <span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
-                    {wsEventList.length} EVENTS RECEIVED
-                  </span>
-                )}
+
+                <Panel title="AI ALERT FEED" subtitle={`/alerts · ${alertList.length} active`} acc={theme.red} tag="LIVE">
+                  <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:490,overflowY:"auto"}}>
+                    {loading && !alertList.length
+                      ? Array.from({length:4},(_,i)=><Skeleton key={i} h={60} mb={0}/>)
+                      : alertList.length
+                        ? alertList.map((a,i)=>{
+                            const txt = typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));
+                            const {col,label} = severityFromText(txt,theme);
+                            return (
+                              <div key={i} style={{padding:"9px 11px",background:`${col}08`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:3,animation:`fadeUp .3s ease ${i*.05}s both`}}>
+                                <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                                  {col===theme.red&&<span style={{width:5,height:5,borderRadius:"50%",background:theme.red,display:"inline-block",animation:"pulseDot 1s infinite"}}/>}
+                                  <span style={{fontSize:13,fontFamily:"'Inter',sans-serif",color:col,letterSpacing:"0.01em"}}>{label}</span>
+                                </div>
+                                <div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div>
+                              </div>
+                            );
+                          })
+                        : <div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"20px 0",textAlign:"center"}}>⏳ No alerts yet…</div>
+                    }
+                  </div>
+                </Panel>
               </div>
 
-              {/* Live event stream */}
-              <Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">
-                {wsEventList.length === 0 ? (
-                  <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}>
-                    <div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div>
-                    <div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div>
-                    <div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+                <Panel title="AI CIVIC COPILOT" subtitle="REAL RAG+LLM · /ai-insight endpoint" acc={theme.green} tag="AI-LIVE" style={{minHeight:420}}>
+                  <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
+                </Panel>
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} forecasts`} acc={theme.amber}>
+                    <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:200,overflowY:"auto"}}>
+                      {loading && !predList.length
+                        ? Array.from({length:3},(_,i)=><Skeleton key={i} h={48} mb={0}/>)
+                        : predList.length
+                          ? predList.map((p,i)=>{
+                              const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));
+                              return (
+                                <div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9,animation:`fadeUp .3s ease ${i*.07}s both`}}>
+                                  <span style={{fontSize:14,flexShrink:0}}>🔮</span>
+                                  <div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div>
+                                </div>
+                              );
+                            })
+                          : <div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading predictions…</div>
+                      }
+                    </div>
+                  </Panel>
+
+                  <Panel title="RECENT EVENTS" subtitle={`/events · latest ${Math.min(eventList.length,5)} of ${eventList.length}`} acc={theme.accent}>
+                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                      {loading && !eventList.length
+                        ? Array.from({length:3},(_,i)=><Skeleton key={i} h={42} mb={0}/>)
+                        : eventList.slice(0,5).map((e,i)=>{
+                            const loc = e.location||e.city||"—"; const issue=e.issue||"—";
+                            const risk=e.risk_score??e.risk??0; const sent=e.sentiment??0;
+                            return (
+                              <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${theme.border}22`,animation:`fadeUp .3s ease ${i*.05}s both`}}>
+                                <div style={{width:6,height:6,borderRadius:"50%",background:riskCol(risk,isDark),flexShrink:0,boxShadow:isDark?`0 0 5px ${riskCol(risk,isDark)}`:"none"}}/>
+                                <div style={{flex:1}}>
+                                  <div style={{fontSize:13,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700}}>{loc} <span style={{color:theme.txtMute,fontWeight:400,fontSize:11}}>— {issue}</span></div>
+                                  {e.text&&<div style={{fontSize:14,color:theme.txtMute,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{e.text}</div>}
+                                </div>
+                                <div style={{fontSize:13,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700,flexShrink:0}}>{risk}</div>
+                                <div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div>
+                              </div>
+                            );
+                          })
+                      }
+                    </div>
+                  </Panel>
+                </div>
+              </div>
+            </>)}
+
+            {/* ════ INTELLIGENCE ════ */}
+            {activeTab==="intelligence" && (
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}>
+                <Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}>
+                  <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
+                </Panel>
+                <div style={{display:"flex",flexDirection:"column",gap:12}}>
+                  <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}>
+                    <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>
+                      {predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})}
+                      {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}
+                    </div>
+                  </Panel>
+                  <Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}>
+                    <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>
+                      {alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}
+                      {!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}
+                    </div>
+                  </Panel>
+                </div>
+              </div>
+            )}
+
+            {/* ════ ANALYTICS ════ */}
+            {activeTab==="analytics" && (
+              <div style={{animation:"slideIn .4s ease"}}>
+                <CitizenReportBoard events={eventList} loading={loading} theme={theme} isDark={isDark}/>
+              </div>
+            )}
+
+            {/* ════ KNOWLEDGE GRAPH ════ */}
+            {activeTab==="graph" && (
+              <div style={{animation:"slideIn .4s ease"}}>
+                <Panel title="CIVIC KNOWLEDGE GRAPH" subtitle="/knowledge-graph · entity relationships · AI-mapped connections" acc={theme.green} tag="NETWORK">
+                  {loading&&!knowledgeGraph
+                    ? <div style={{height:300,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:12}}>
+                        <div style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace",animation:"blink .8s infinite"}}>► LOADING KNOWLEDGE GRAPH FROM BACKEND…</div>
+                        <Skeleton h={200}/>
+                      </div>
+                    : <KnowledgeGraph data={knowledgeGraph} isDark={isDark}/>
+                  }
+                </Panel>
+                {knowledgeGraph && (
+                  <div style={{marginTop:12}}>
+                    <Panel title="RAW GRAPH DATA" subtitle="/knowledge-graph · API response" acc={theme.accent}>
+                      <pre style={{fontSize:13,color:theme.txtSub,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word",maxHeight:300,overflowY:"auto",lineHeight:1.7}}>
+                        {JSON.stringify(knowledgeGraph,null,2).slice(0,2000)}{JSON.stringify(knowledgeGraph).length>2000?"…":""}
+                      </pre>
+                    </Panel>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ════ MY REPORTS ════ */}
+            {activeTab==="myreports" && (
+              <div style={{animation:"slideIn .4s ease"}}>
+                <div style={{marginBottom:16,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                  <div>
+                    <div style={{fontSize:17,fontWeight:800,color:theme.txt}}>My Reports</div>
+                    <div style={{fontSize:12,color:theme.txtMute,marginTop:2}}>Issues you've submitted · auto-dispatched to ward offices</div>
+                  </div>
+                  <button onClick={()=>onReport?.()} style={{display:"flex",alignItems:"center",gap:8,padding:"9px 18px",background:"linear-gradient(135deg,rgba(0,255,157,.14),rgba(0,200,255,.1))",border:`1px solid ${theme.green}50`,borderRadius:8,color:theme.green,fontSize:13,fontWeight:700,cursor:"pointer"}}>
+                    📸 New Report
+                  </button>
+                </div>
+                <div style={{display:"flex",gap:12,marginBottom:16}}>
+                  {[["resolved","#00ff9d","✓ Resolved"],["in_progress","#ffb800","⏳ In Progress"],["submitted","rgba(0,200,255,.8)","📤 Submitted"]].map(([s,c,l])=>(
+                    <div key={s} style={{display:"flex",alignItems:"center",gap:6,fontSize:11,color:theme.txtMute}}>
+                      <div style={{width:8,height:8,borderRadius:"50%",background:c}}/>
+                      {l}
+                    </div>
+                  ))}
+                </div>
+                {myReportsLoading ? (
+                  <div style={{padding:"40px 0",textAlign:"center",display:"flex",flexDirection:"column",alignItems:"center",gap:12}}>
+                    <div style={{width:28,height:28,border:`2px solid ${theme.accent}22`,borderTopColor:theme.accent,borderRadius:"50%",animation:"spin .7s linear infinite"}}/>
+                    <span style={{fontSize:13,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>Loading reports from backend...</span>
+                  </div>
+                ) : myReports.length === 0 ? (
+                  <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+                    <div style={{fontSize:32,marginBottom:12}}>📭</div>
+                    No reports yet. Submit complaints from the Citizen App.
                   </div>
                 ) : (
-                  <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>
-                    {wsEventList.map((e,i)=>{
-                      const risk = e.risk_score||e.risk||0;
-                      const col  = riskCol(risk,isDark);
-                      const ts   = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "LIVE";
+                  <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                    {myReports.map((r,i)=>{
+                      const status = r.status || "submitted";
+                      const statusColor = status==="resolved"?"#00ff9d":status==="in_progress"?theme.amber:theme.accent;
+                      const statusLabel = status==="resolved"?"✓ Resolved":status==="in_progress"?"⏳ In Progress":"📤 Submitted";
+                      const progress    = status==="resolved"?100:status==="in_progress"?55:20;
+                      const issue = r.issue || r.text || "Civic Issue";
+                      const ward  = r.ward  || r.city || r.location || "—";
+                      const date  = r.created_at ? new Date(r.created_at).toLocaleDateString("en-IN") : r.date || "Recent";
+                      const risk  = r.risk_score || r.risk || 0;
+                      const rid   = r.id || r._id || r.report_id || ("CS"+i);
                       return (
-                        <div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}>
-                          <div style={{flexShrink:0,marginTop:2}}>
-                            <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/>
-                          </div>
-                          <div style={{flex:1,minWidth:0}}>
-                            <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
-                              <span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>
-                              {e.issue && <span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}
-                              <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span>
+                        <div key={rid} style={{background:theme.panel,border:`1px solid ${theme.border}`,borderLeft:`3px solid ${statusColor}`,borderRadius:10,padding:"14px 18px",display:"grid",gridTemplateColumns:"1fr auto",gap:12,animation:`fadeUp .3s ease ${i*.06}s both`,transition:"border-color .2s,box-shadow .2s",cursor:"default"}}
+                          onMouseEnter={e=>{e.currentTarget.style.borderColor=statusColor+"60";e.currentTarget.style.boxShadow=`0 4px 20px ${statusColor}14`;}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor=theme.border;e.currentTarget.style.boxShadow="none";}}>
+                          <div>
+                            <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:6}}>
+                              <span style={{fontSize:14,fontWeight:700,color:theme.txt,flex:1}}>{issue}</span>
+                              <span style={{fontSize:10,background:`${statusColor}18`,border:`1px solid ${statusColor}40`,borderRadius:20,padding:"2px 10px",color:statusColor,fontWeight:700,whiteSpace:"nowrap"}}>{statusLabel}</span>
                             </div>
-                            {e.text && <div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}
+                            <div style={{display:"flex",gap:16,marginBottom:8,flexWrap:"wrap"}}>
+                              {[["🏘️",ward],["🕐",date],["⚡",`Risk: ${risk}/100`]].map(([icon,val])=>(
+                                <div key={icon} style={{fontSize:11,color:theme.txtMute}}>{icon} {val}</div>
+                              ))}
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:8}}>
+                              <div style={{flex:1,height:4,background:`${statusColor}15`,borderRadius:2}}>
+                                <div style={{height:"100%",width:`${progress}%`,background:statusColor,borderRadius:2,transition:"width 1s ease"}}/>
+                              </div>
+                              <span style={{fontSize:10,color:statusColor,fontFamily:"'DM Mono',monospace",minWidth:32}}>{progress}%</span>
+                            </div>
                           </div>
-                          <div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div>
+                          <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",justifyContent:"space-between"}}>
+                            <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>{rid}</span>
+                            <div style={{width:42,height:42,position:"relative"}}>
+                              <svg width="42" height="42">
+                                <circle cx="21" cy="21" r="17" fill="none" stroke={`${statusColor}20`} strokeWidth="4"/>
+                                <circle cx="21" cy="21" r="17" fill="none" stroke={statusColor} strokeWidth="4"
+                                  strokeDasharray={`${(progress/100)*106.8} ${106.8-(progress/100)*106.8}`}
+                                  strokeDashoffset="26.7" strokeLinecap="round"/>
+                              </svg>
+                              <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:10,fontWeight:700,color:statusColor,fontFamily:"'DM Mono',monospace"}}>{progress}</div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
                 )}
-              </Panel>
+              </div>
+            )}
 
-              {/* Also show REST /events alongside for comparison */}
-              {eventList.length > 0 && (
-                <div style={{marginTop:12}}>
-                  <Panel title="REST EVENT FEED" subtitle={"/events · " + eventList.length + " total · polled every " + POLL_MS/1000 + "s"} acc={theme.amber} tag="REST">
-                    <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>
-                      {eventList.slice(0,20).map((e,i)=>{
-                        const risk=e.risk_score||e.risk||0; const col=riskCol(risk,isDark);
+            {/* ════ AI CIVIC COPILOT tab ════ */}
+            {activeTab==="copilot" && (
+              <div style={{animation:"slideIn .4s ease"}}>
+                <Panel title="AI CIVIC COPILOT" subtitle="/ai-civic-copilot · conversational AI interface" acc={theme.accent} tag="CHAT" style={{minHeight:600}}>
+                  <AICivicCopilotPanel theme={theme} isDark={isDark}
+                    riskSummary={riskSummary} events={eventList} alerts={alertList} predictions={predList}/>
+                </Panel>
+              </div>
+            )}
+
+            {/* ════ LIVE WEBSOCKET STREAM ════ */}
+            {activeTab==="livestream" && (
+              <div style={{animation:"slideIn .4s ease"}}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/>
+                    <span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span>
+                  </div>
+                  <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1.onrender.com/ws/events</span>
+                  {wsEventList.length > 0 && (
+                    <span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
+                      {wsEventList.length} EVENTS RECEIVED
+                    </span>
+                  )}
+                </div>
+
+                <Panel title="LIVE EVENT STREAM" subtitle="WebSocket · wss://.../ws/events · real-time push" acc={theme.accent} tag="WS-LIVE">
+                  {wsEventList.length === 0 ? (
+                    <div style={{padding:"40px 0",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",display:"flex",flexDirection:"column",gap:12,alignItems:"center"}}>
+                      <div style={{fontSize:32}}>{wsConnected?"📡":"⏳"}</div>
+                      <div>{wsConnected?"Waiting for live events from backend…":"Establishing WebSocket connection…"}</div>
+                      <div style={{fontSize:11,color:theme.txtMute,opacity:.6}}>Events will appear here in real-time as complaints are processed</div>
+                    </div>
+                  ) : (
+                    <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:520,overflowY:"auto"}}>
+                      {wsEventList.map((e,i)=>{
+                        const risk = e.risk_score||e.risk||0;
+                        const col  = riskCol(risk,isDark);
+                        const ts   = e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "LIVE";
                         return (
-                          <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}>
-                            <span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/>
-                            <span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span>
-                            <span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span>
-                            <span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span>
+                          <div key={i} style={{padding:"10px 13px",background:`${col}07`,border:`1px solid ${col}20`,borderLeft:`3px solid ${col}`,borderRadius:5,display:"flex",gap:12,alignItems:"flex-start",animation:"fadeUp .25s ease"}}>
+                            <div style={{flexShrink:0,marginTop:2}}>
+                              <span style={{width:7,height:7,borderRadius:"50%",background:col,display:"inline-block",boxShadow:`0 0 6px ${col}`}}/>
+                            </div>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{display:"flex",gap:10,alignItems:"center",marginBottom:4,flexWrap:"wrap"}}>
+                                <span style={{fontSize:12,fontWeight:700,color:col,fontFamily:"'Inter',sans-serif"}}>{e.location||e.city||"Unknown"}</span>
+                                {e.issue && <span style={{fontSize:11,color:theme.txtMute}}>— {e.issue}</span>}
+                                <span style={{fontSize:10,color:theme.txtMute,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>{ts}</span>
+                              </div>
+                              {e.text && <div style={{fontSize:12.5,color:theme.txtSub,lineHeight:1.5,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text}</div>}
+                            </div>
+                            <div style={{fontSize:13,fontWeight:700,color:col,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{risk}</div>
                           </div>
                         );
                       })}
                     </div>
-                  </Panel>
-                </div>
-              )}
-            </div>
-          )}
+                  )}
+                </Panel>
 
-        </div>{/* end content padding */}
+                {eventList.length > 0 && (
+                  <div style={{marginTop:12}}>
+                    <Panel title="REST EVENT FEED" subtitle={`/events · ${eventList.length} total · polled every ${POLL_MS/1000}s`} acc={theme.amber} tag="REST">
+                      <div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:300,overflowY:"auto"}}>
+                        {eventList.slice(0,20).map((e,i)=>{
+                          const risk=e.risk_score||e.risk||0; const col=riskCol(risk,isDark);
+                          return (
+                            <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom:`1px solid ${theme.border}22`}}>
+                              <span style={{width:5,height:5,borderRadius:"50%",background:col,flexShrink:0}}/>
+                              <span style={{fontSize:13,color:theme.accent,fontWeight:600,minWidth:80}}>{e.location||e.city||"—"}</span>
+                              <span style={{fontSize:12,color:theme.txtMute,flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{e.text||e.description||e.issue||"—"}</span>
+                              <span style={{fontSize:12,color:col,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{risk}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Panel>
+                  </div>
+                )}
+              </div>
+            )}
 
-          {/* Footer */}
+          </div>
+
           <footer style={{padding:"10px 28px 16px",borderTop:`1px solid ${theme.border}`,display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0}}>
             <div style={{fontSize:11,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.02em"}}>CIVICSENTINEL AI · OFFICER PORTAL · {API}</div>
             <div style={{display:"flex",alignItems:"center",gap:14}}>
@@ -2327,8 +1929,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
               </div>
             </div>
           </footer>
-        </div>{/* end main column */}
-      </div>{/* end root flex layout */}
+        </div>
+      </div>
     </Ctx.Provider>
   );
 }
