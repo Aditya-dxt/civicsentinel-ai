@@ -87,6 +87,7 @@ app.add_middleware(
 graph_engine = CivicGraph()
 rag          = CivicRAG()
 retriever    = CivicRetriever()
+rag.seed_if_empty()
 
 
 # Seed knowledge base (uncomment to seed on startup)
@@ -230,14 +231,27 @@ def update_event_status(event_id: str, body: StatusUpdate):
 # LLM Powered AI Insight
 # -----------------------------
 @app.get("/ai-insight")
-def ai_insight(query: str = "civic issues summary"):
+def ai_insight(query: str = "summarize current civic issues and risk levels"):
+    try:
+        ai_analysis  = retriever.query(query)
+        latest_event = event_store[-1] if event_store else None
+        return {
+            "query":        query,
+            "latest_event": latest_event,
+            "ai_analysis":  ai_analysis,
+        }
+    except Exception as e:
+        return {
+            "query":       query,
+            "ai_analysis": f"AI engine warming up. Query received: {query}. Please try again in a moment.",
+        }
     ai_analysis  = retriever.query(query)
     latest_event = event_store[-1] if event_store else None
     return {
-        "query":        query,
-        "latest_event": latest_event,
-        "ai_analysis":  ai_analysis,
-    }
+    "query":        query,
+    "latest_event": latest_event,
+    "ai_analysis":  ai_analysis,
+}
 
 
 # -----------------------------
