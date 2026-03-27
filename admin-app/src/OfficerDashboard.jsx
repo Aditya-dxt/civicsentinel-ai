@@ -850,176 +850,51 @@ function Skeleton({ h=16, w="100%", mb=8 }) {
 // AI CIVIC COPILOT PANEL — /ai-civic-copilot endpoint (chatbot-style)
 // ══════════════════════════════════════════════════════════════════════════════
 function AICivicCopilotPanel({ theme, isDark, riskSummary={}, events=[], alerts=[], predictions=[] }) {
-
-  // Answer queries locally from live data when backend AI returns nothing
-  const localAnswer = (query) => {
-    const q = query.toLowerCase();
-    const riskEntries = Object.entries(riskSummary).sort((a,b)=>b[1]-a[1]);
-    const high = riskEntries.filter(([,s])=>s>=70);
-
-    if (q.includes("high risk") || q.includes("risk cit")) {
-      if (riskEntries.length === 0) return "No risk data available yet. Submit complaints to generate risk scores.";
-      const top = riskEntries.slice(0,5).map(([c,s])=>c+" ("+s+")").join(", ");
-      const crit = high.length > 0 ? high.map(([c,s])=>c+" - "+s).join(", ") : "None currently";
-      return "Based on live /risk-summary data:\n\nTop risk cities: " + top + "\n\nCritical (>=70): " + crit + "\n\nTotal monitored: " + riskEntries.length + " cities.";
-    }
-    if (q.includes("alert")) {
-      if (alerts.length === 0) return "No active alerts right now from /alerts endpoint.";
-      return "Active alerts (" + alerts.length + " total):\n\n" + alerts.slice(0,5).map((a,i)=>(i+1)+". "+(typeof a==="string"?a:JSON.stringify(a))).join("\n");
-    }
-    if (q.includes("predict") || q.includes("forecast")) {
-      if (predictions.length === 0) return "No predictions available yet from /predictions endpoint.";
-      return "AI Crisis Predictions (" + predictions.length + "):\n\n" + predictions.slice(0,5).map((p,i)=>(i+1)+". "+(typeof p==="string"?p:p.prediction||p.issue||JSON.stringify(p))).join("\n");
-    }
-    if (q.includes("complaint") || q.includes("report") || q.includes("event")) {
-      if (events.length === 0) return "No complaint events yet in the system.";
-      const cities = [...new Set(events.map(e=>e.city||e.location).filter(Boolean))].slice(0,6);
-      const latest = events[0] ? (events[0].city||events[0].location||"Unknown")+" - "+(events[0].issue||events[0].text||"") : "N/A";
-      return "Total complaints: " + events.length + "\n\nCities with complaints: " + cities.join(", ") + "\n\nMost recent: " + latest;
-    }
-    const cityMatch = riskEntries.find(([c])=>q.includes(c.toLowerCase()));
-    if (cityMatch) {
-      const name = cityMatch[0]; const score = cityMatch[1];
-      const cityEvents = events.filter(e=>(e.city||e.location||"").toLowerCase()===name.toLowerCase());
-      const label = score>=70?"CRITICAL":score>=40?"HIGH":"STABLE";
-      const advice = score>=70 ? "Immediate intervention recommended." : "Status within manageable range.";
-      return name + " Risk Report:\n\nScore: " + score + "/100 - " + label + "\nComplaints: " + cityEvents.length + " recorded\n" + advice;
-    }
-    return null; // no local answer available
-  };
   const [messages, setMessages] = useState([
-    { role:"system", text:"AI Civic Copilot ready. Ask me anything about civic issues, risk levels, or specific cities.", ts: new Date().toLocaleTimeString() }
+    { role:"system", text:"AI Civic Copilot ready.", ts: new Date().toLocaleTimeString() }
   ]);
-  const [input, setInput]       = useState("");
-  const [loading, setLoading]   = useState(false);
-  const bottomRef               = useRef(null);
-
-  const SUGGESTIONS = [
-    "What are the high risk cities right now?",
-    "Water crisis in Mumbai",
-    "Predict upcoming issues in Delhi",
-    "Which ward has the most complaints?",
-  ];
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const bottomRef = useRef(null);
 
   useEffect(() => {
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior:"smooth" });
+    bottomRef.current?.scrollIntoView({ behavior:"smooth" });
   }, [messages]);
 
-  const send = async (q) => {
-    const query = (q || input).trim();
-    if (!query) return;
+  const send = async () => {
+    if (!input.trim()) return;
+
+    const query = input;
     setInput("");
     setMessages(prev => [...prev, { role:"user", text:query, ts:new Date().toLocaleTimeString() }]);
     setLoading(true);
 
-    const extractText = (data) => {
-      if (!data) return null;
-      if (typeof data === "string") return data;
-      // Detect empty/no_data responses
-      if (data.status === "no_data" || data.status === "empty") return null;
-      return data.response || data.answer || data.ai_analysis || data.insight
-          || data.message || data.result || null;
-    };
-
-    let reply = null;
-
-    // Try /ai-civic-copilot first
     try {
-      const res  = await fetch(`${API}/ai-civic-copilot?query=${encodeURIComponent(query)}`);
+      const res = await fetch(`${API}/ai-civic-copilot?query=${encodeURIComponent(query)}`);
       const data = await res.json();
-      reply = extractText(data);
-    } catch(_) { /* will fallback */ }
+      const reply = data?.response || data?.answer || "No response";
 
-    // Fallback to /ai-insight if copilot failed or returned no_data
-    if (!reply) {
-      try {
-        const res  = await fetch(`${API}/ai-insight?query=${encodeURIComponent(query)}`);
-        const data = await res.json();
-        reply = extractText(data);
-        if (reply) reply = "💡 [via /ai-insight]\n\n" + reply;
-      } catch(e) {
-        reply = null;
-      }
+      setMessages(prev => [...prev, { role:"assistant", text:reply, ts:new Date().toLocaleTimeString() }]);
+    } catch {
+      setMessages(prev => [...prev, { role:"assistant", text:"Error fetching AI response", ts:new Date().toLocaleTimeString() }]);
     }
 
-    // Final fallback — answer from local live data
-    if (!reply) {
-      const local = localAnswer(query);
-      if (local) {
-        reply = "[Live Data] " + local;
-      } else {
-        reply = "Backend AI returned no data. Try: high risk cities, active alerts, predictions, or a city name. The AI may still be warming up on Render free tier (wait ~30s).";
-      }
-    }
-
-    setMessages(prev => [...prev, { role:"assistant", text:reply, ts:new Date().toLocaleTimeString() }]);
     setLoading(false);
   };
 
   return (
-    <div style={{display:"grid",gridTemplateColumns:"1fr 320px",gap:14,height:"calc(100vh - 160px)",minHeight:500}}>
-      {/* Chat window */}
-      <Panel title="AI CIVIC COPILOT" subtitle="/ai-civic-copilot · chatbot-style civic intelligence" acc={theme.green} tag="AI-LIVE" style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
-        {/* Messages */}
-        <div style={{flex:1,overflowY:"auto",display:"flex",flexDirection:"column",gap:10,paddingRight:4,marginBottom:12}}>
-          {messages.map((m,i) => (
-            <div key={i} style={{display:"flex",flexDirection:"column",alignItems:m.role==="user"?"flex-end":"flex-start",animation:"fadeUp .25s ease"}}>
-              <div style={{
-                maxWidth:"85%", padding:"11px 14px", borderRadius:m.role==="user"?"12px 12px 2px 12px":"12px 12px 12px 2px",
-                background: m.role==="user" ? `${theme.accent}18`
-                          : m.role==="error" ? `${theme.red}10`
-                          : m.role==="system" ? `${theme.amber}08`
-                          : `${theme.green}08`,
-                border: `1px solid ${m.role==="user"?theme.accent:m.role==="error"?theme.red:m.role==="system"?theme.amber:theme.green}25`,
-              }}>
-                <div style={{fontSize:13,color:m.role==="user"?theme.accent:m.role==="error"?theme.red:m.role==="system"?"rgba(255,184,0,.75)":isDark?"#b8daff":theme.txt,lineHeight:1.7,fontFamily:"'DM Mono',monospace",whiteSpace:"pre-wrap",wordBreak:"break-word"}}>{m.text}</div>
-                <div style={{fontSize:9.5,color:theme.txtMute,marginTop:4,fontFamily:"'DM Mono',monospace"}}>{m.ts}</div>
-              </div>
-            </div>
-          ))}
-          {loading && (
-            <div style={{display:"flex",alignItems:"center",gap:8,padding:"10px 14px",background:`${theme.green}06`,border:`1px solid ${theme.green}18`,borderRadius:10,maxWidth:"60%"}}>
-              {[0,1,2].map(i=><div key={i} style={{width:6,height:6,borderRadius:"50%",background:theme.green,animation:`pulse 1.2s ease ${i*.2}s infinite`}}/>)}
-              <span style={{fontSize:12,color:theme.green,fontFamily:"'DM Mono',monospace"}}>AI thinking…</span>
-            </div>
-          )}
-          <div ref={bottomRef}/>
-        </div>
-        {/* Input row */}
-        <div style={{display:"flex",gap:8,borderTop:`1px solid ${theme.border}`,paddingTop:12}}>
-          <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&!loading&&send()}
-            placeholder="Ask about any civic issue, city, or risk…"
-            style={{flex:1,background:theme.inputBg,border:`1.5px solid ${theme.inputBorder}`,borderRadius:9,padding:"11px 14px",fontSize:13,color:theme.inputTxt,outline:"none",fontFamily:"'Inter',sans-serif",transition:"border-color .2s"}}
-            onFocus={e=>e.target.style.borderColor=theme.inputFocus}
-            onBlur={e=>e.target.style.borderColor=theme.inputBorder}/>
-          <button onClick={()=>!loading&&send()} disabled={loading||!input.trim()}
-            style={{padding:"11px 18px",background:loading||!input.trim()?`${theme.green}08`:`${theme.green}18`,border:`1px solid ${theme.green}${loading||!input.trim()?"20":"45"}`,borderRadius:9,color:loading||!input.trim()?`${theme.green}40`:theme.green,fontSize:13,fontWeight:700,cursor:loading||!input.trim()?"not-allowed":"pointer",fontFamily:"'Inter',sans-serif",transition:"all .18s"}}>
-            {loading?"…":"Send"}
-          </button>
-        </div>
-      </Panel>
+    <div style={{ display:"flex", flexDirection:"column", height:"100%" }}>
+      <div style={{ flex:1, overflowY:"auto" }}>
+        {messages.map((m,i)=>(
+          <div key={i}>{m.text}</div>
+        ))}
+        {loading && <div>AI thinking...</div>}
+        <div ref={bottomRef}/>
+      </div>
 
-      {/* Suggestions sidebar */}
-      <div style={{display:"flex",flexDirection:"column",gap:12}}>
-        <Panel title="QUICK QUERIES" subtitle="Click to ask instantly" acc={theme.amber}>
-          <div style={{display:"flex",flexDirection:"column",gap:8}}>
-            {SUGGESTIONS.map((s,i)=>(
-              <button key={i} onClick={()=>!loading&&send(s)}
-                style={{padding:"10px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}20`,borderRadius:8,color:theme.amber,fontSize:12.5,cursor:loading?"not-allowed":"pointer",textAlign:"left",fontFamily:"'Inter',sans-serif",lineHeight:1.4,transition:"all .18s",opacity:loading?.55:1}}
-                onMouseEnter={e=>!loading&&(e.currentTarget.style.background=`${theme.amber}14`)}
-                onMouseLeave={e=>(e.currentTarget.style.background=`${theme.amber}08`)}>
-                💬 {s}
-              </button>
-            ))}
-          </div>
-        </Panel>
-        <Panel title="ENDPOINT" subtitle="Direct API access" acc={theme.accent}>
-          <div style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace",lineHeight:1.8,wordBreak:"break-all"}}>
-            <div style={{color:theme.accent,marginBottom:4}}>GET /ai-civic-copilot</div>
-            <div>?query=your+question</div>
-            <div style={{marginTop:8,color:theme.txtMute,opacity:.6}}>{API}/ai-civic-copilot</div>
-          </div>
-        </Panel>
+      <div style={{ display:"flex", gap:8 }}>
+        <input value={input} onChange={e=>setInput(e.target.value)} />
+        <button onClick={send}>Send</button>
       </div>
     </div>
   );
