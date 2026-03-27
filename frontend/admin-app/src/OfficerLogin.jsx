@@ -6,7 +6,8 @@ import { useState, useEffect, useRef } from "react";
 // Email + Password only — no Google, no guest
 // ═══════════════════════════════════════════════════════════
 
-// Mock officer credentials — replace with real auth backend
+
+// Officer credentials — replace with real auth backend in production
 const OFFICER_CREDENTIALS = [
   { email:"officer@mcgm.gov.in",   password:"Ward@2024", name:"Officer Sharma",   ward:"Bandra",  city:"Mumbai",  role:"Ward Officer" },
   { email:"admin@civicsentinel.in", password:"Admin@2024", name:"Admin Singh",    ward:"All",     city:"All",     role:"Admin" },
@@ -68,7 +69,7 @@ export default function OfficerLogin({ onAuth }) {
 
   const handleLogin = async () => {
     if (!email || !pass) { setError("Please enter your credentials."); bump(); return; }
-    setLoading(true); setError("");
+    
     await new Promise(r=>setTimeout(r,900));
     const officer = OFFICER_CREDENTIALS.find(o => o.email===email && o.password===pass);
     setLoading(false);
