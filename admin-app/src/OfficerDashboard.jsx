@@ -106,7 +106,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight?query=summarize+civic+issues`).then(r => r.json()),
+        fetch(`${API}/ai-insight`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
@@ -338,17 +338,7 @@ function useLeaflet() {
   return L;
 }
 
-<<<<<<< HEAD
 // ── INDIA OVERVIEW MAP ──
-=======
-// ══════════════════════════════════════════════════════════════════════════════
-// INDIA OVERVIEW MAP
-// FIX 1 — All 44 cities from CITY_GEO are shown as green pins by default.
-// FIX 2 — If a city has a risk score from riskSummary the color updates
-//          (green <40 / amber 40-69 / red ≥70). Cities with no reports
-//          stay green (score = 0 → STABLE).
-// ══════════════════════════════════════════════════════════════════════════════
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
 function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
   const t = useT();
   const mapRef = useRef(null);
@@ -375,7 +365,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
     return () => { map.remove(); mapInstanceRef.current = null; };
   }, [L, isDark]);
 
-<<<<<<< HEAD
   // Update markers when riskSummary changes
   useEffect(() => {
     const map = mapInstanceRef.current;
@@ -393,24 +382,6 @@ function IndiaMap({ riskSummary, isDark, onCitySelect, drillCity }) {
       if (!geo) return; // truly unknown city
       const col = riskCol(score, isDark);
       const hexCol = col;
-=======
-  // ── FIX: Render ALL cities, default score = 0 (green) ──
-  useEffect(() => {
-    const map = mapInstanceRef.current;
-    if (!L || !map) return;
-
-    // Remove existing markers
-    markersRef.current.forEach(m => map.removeLayer(m));
-    markersRef.current = [];
-
-    // Iterate every city in CITY_GEO — not just riskSummary keys
-    Object.entries(CITY_GEO).forEach(([city, geo]) => {
-      // Use real risk score if available, otherwise 0 (renders green)
-      const score      = riskSummary?.[city] ?? 0;
-      const col        = riskCol(score, isDark);
-      const hasRisk    = score > 0;
-      const hasWards   = !!WARD_GEOJSON[city];
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
       const isDrilling = drillCity === city;
       const hasWards = !!WARD_GEOJSON[city];
       const icon = L.divIcon({
@@ -633,116 +604,7 @@ function KnowledgeGraph({ data, isDark }) {
 
   useEffect(() => {
     if (!nodes.length) return;
-<<<<<<< HEAD
     const canvas = canvasRef.current; if(!canvas) return;
-=======
-    const cityEdge = {}, issueEdge = {};
-    edges.forEach(e => {
-      const a = nodes[e.from], b = nodes[e.to];
-      if (a?.type === "city")  cityEdge[a.label]  = (cityEdge[a.label]  || 0) + 1;
-      if (b?.type === "city")  cityEdge[b.label]  = (cityEdge[b.label]  || 0) + 1;
-      if (a?.type === "issue") issueEdge[a.label] = (issueEdge[a.label] || 0) + 1;
-      if (b?.type === "issue") issueEdge[b.label] = (issueEdge[b.label] || 0) + 1;
-    });
-    const topCity  = Object.entries(cityEdge).sort((a,b)=>b[1]-a[1])[0];
-    const topIssue = Object.entries(issueEdge).sort((a,b)=>b[1]-a[1])[0];
-    setStats({
-      totalNodes: nodes.length, totalEdges: edges.length,
-      cities: nodes.filter(n=>n.type==="city").length,
-      issues: nodes.filter(n=>n.type==="issue").length,
-      topCity:  topCity  ? topCity[0]  : "—",
-      topIssue: topIssue ? topIssue[0] : "—",
-    });
-  }, [nodes, edges]);
-
-  // ── Run physics OFFLINE → settle → render static positions ───────────
-  useEffect(() => {
-    if (!nodes.length || !canvasRef.current) return;
-
-    const canvas = canvasRef.current;
-    const W = canvas.width;
-    const H = canvas.height;
-
-    // ── Step 1: initialise positions spread across 80% of canvas ──────
-    // Use a grid-jitter layout so nodes start far apart
-    const cols    = Math.ceil(Math.sqrt(nodes.length * (W / H)));
-    const rows    = Math.ceil(nodes.length / cols);
-    const cellW   = (W * 0.82) / cols;
-    const cellH   = (H * 0.78) / rows;
-    const offsetX = W * 0.09;
-    const offsetY = H * 0.11;
-
-    let placed = nodes.map((n, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      return {
-        ...n,
-        x:  offsetX + col * cellW + cellW / 2 + (Math.random() - 0.5) * cellW * 0.55,
-        y:  offsetY + row * cellH + cellH / 2 + (Math.random() - 0.5) * cellH * 0.55,
-        vx: 0,
-        vy: 0,
-      };
-    });
-
-    // ── Step 2: run 320 physics iterations SYNCHRONOUSLY ──────────────
-    // Strong repulsion + weak edge attraction → spreads evenly then stops
-    const REPEL    = 28000;   // much stronger push apart
-const ATTRACT  = 0.006;   // weaker pull together
-const DAMPING  = 0.72;
-const PADDING  = 90;
-const MIN_DIST = 140;     // enforced minimum gap
-
-for (let step = 0; step < 500; step++) {  // more iterations to fully settle
-      const cooling = 1 - step / 320; // cool down over time → less movement
-
-      for (let i = 0; i < placed.length; i++) {
-        let fx = 0, fy = 0;
-
-        // Repulsion
-        for (let j = 0; j < placed.length; j++) {
-          if (i === j) continue;
-          const dx   = placed[i].x - placed[j].x;
-          const dy   = placed[i].y - placed[j].y;
-          const dist = Math.max(Math.hypot(dx, dy), MIN_DIST * 0.5);
-          const force = REPEL / (dist * dist);
-          fx += (dx / dist) * force * cooling;
-          fy += (dy / dist) * force * cooling;
-        }
-
-        // Attraction along edges
-        edges.forEach(e => {
-          const other = e.from === i ? placed[e.to] : e.to === i ? placed[e.from] : null;
-          if (!other) return;
-          const dx = other.x - placed[i].x;
-          const dy = other.y - placed[i].y;
-          fx += dx * ATTRACT;
-          fy += dy * ATTRACT;
-        });
-
-        // Gentle center gravity
-        fx += (W / 2 - placed[i].x) * 0.003;
-        fy += (H / 2 - placed[i].y) * 0.003;
-
-        placed[i].vx = (placed[i].vx + fx) * DAMPING;
-        placed[i].vy = (placed[i].vy + fy) * DAMPING;
-
-        // Clamp velocity — reduces sharply as simulation cools
-        const maxV = 6 * cooling + 0.5;
-        placed[i].vx = Math.max(-maxV, Math.min(maxV, placed[i].vx));
-        placed[i].vy = Math.max(-maxV, Math.min(maxV, placed[i].vy));
-
-        placed[i].x = Math.max(PADDING, Math.min(W - PADDING, placed[i].x + placed[i].vx));
-        placed[i].y = Math.max(PADDING, Math.min(H - PADDING, placed[i].y + placed[i].vy));
-      }
-    }
-
-    // ── Step 3: zero out all velocities — positions are now FROZEN ─────
-    placed = placed.map(n => ({ ...n, vx: 0, vy: 0 }));
-    placedRef.current = placed;
-    edgesRef.current  = edges;
-
-    // ── Step 4: pure render loop — only pulse dots animate ────────────
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
     const ctx = canvas.getContext("2d");
     const W = canvas.width, H = canvas.height;
 
@@ -826,11 +688,9 @@ function AIInsightPanel({ insight, loading, error }) {
   const [localLoading, setLocalLoading] = useState(false);
 
   const fetchInsight = useCallback(async (q) => {
-  setLocalLoading(true);
-  try {
-    // Always send a default query — never call /ai-insight without one
-    const safeQuery = q || "summarize current civic issues and risk levels";
-    const url = `${API}/ai-insight?query=${encodeURIComponent(safeQuery)}`;
+    setLocalLoading(true);
+    try {
+      const url = q ? `${API}/ai-insight?query=${encodeURIComponent(q)}` : `${API}/ai-insight`;
       const res = await fetch(url);
       const d = await res.json();
       setLocalResult(d);
@@ -1643,13 +1503,8 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
   const [time, setTime] = useState(new Date());
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedCity, setSelectedCity] = useState(null);
-<<<<<<< HEAD
   const [drillCity, setDrillCity] = useState(null); // city ward drill-down
   const [myReports, setMyReports]   = useState([]);
-=======
-  const [drillCity, setDrillCity]       = useState(null);
-  const [myReports, setMyReports]       = useState([]);
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
   const [myReportsLoading, setMyReportsLoading] = useState(false);
 
   const {
@@ -1997,7 +1852,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                       })}
                     </div>
                   </div>
-<<<<<<< HEAD
                 ) : (
                   // ── INDIA OVERVIEW ──
                   <IndiaMap
@@ -2046,36 +1900,6 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                   }
                 </Panel>
               </div>
-=======
-                </Panel>
-              </div>
-
-              {/* Bottom row */}
-              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
-                <Panel title="AI CIVIC COPILOT" subtitle="REAL RAG+LLM · /ai-insight endpoint" acc={theme.green} tag="AI-LIVE" style={{minHeight:420}}>
-                  <AIInsightPanel insight={aiInsight} loading={loading} error={error}/>
-                </Panel>
-                <div style={{display:"flex",flexDirection:"column",gap:12}}>
-                  <Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} forecasts`} acc={theme.amber}>
-                    <div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:200,overflowY:"auto"}}>
-                      {loading&&!predList.length?Array.from({length:3},(_,i)=><Skeleton key={i} h={48} mb={0}/>):predList.length?predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9,animation:`fadeUp .3s ease ${i*.07}s both`}}><span style={{fontSize:14,flexShrink:0}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);}):(<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading predictions…</div>)}
-                    </div>
-                  </Panel>
-                  <Panel title="RECENT EVENTS" subtitle={`/events · latest ${Math.min(eventList.length,5)} of ${eventList.length}`} acc={theme.accent}>
-                    <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                      {loading&&!eventList.length?Array.from({length:3},(_,i)=><Skeleton key={i} h={42} mb={0}/>):eventList.slice(0,5).map((e,i)=>{const loc=e.location||e.city||"—";const issue=e.issue||"—";const risk=e.risk_score??e.risk??0;const sent=e.sentiment??0;return(<div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"7px 0",borderBottom:`1px solid ${theme.border}22`,animation:`fadeUp .3s ease ${i*.05}s both`}}><div style={{width:6,height:6,borderRadius:"50%",background:riskCol(risk,isDark),flexShrink:0,boxShadow:isDark?`0 0 5px ${riskCol(risk,isDark)}`:"none"}}/><div style={{flex:1}}><div style={{fontSize:13,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700}}>{loc}<span style={{color:theme.txtMute,fontWeight:400,fontSize:11}}> — {issue}</span></div>{e.text&&<div style={{fontSize:14,color:theme.txtMute,marginTop:2,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis",maxWidth:280}}>{e.text}</div>}</div><div style={{fontSize:13,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700,flexShrink:0}}>{risk}</div><div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div></div>);})}
-                    </div>
-                  </Panel>
-                </div>
-              </div>
-            </>)}
-
-            {/* ════════ INTELLIGENCE ════════ */}
-            {activeTab==="intelligence"&&(<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,animation:"slideIn .4s ease"}}><Panel title="AI CIVIC COPILOT" subtitle="FULL INTERFACE · /ai-insight · RAG+LLM powered" acc={theme.green} tag="AI-LIVE" style={{minHeight:580}}><AIInsightPanel insight={aiInsight} loading={loading} error={error}/></Panel><div style={{display:"flex",flexDirection:"column",gap:12}}><Panel title="CRISIS PREDICTIONS" subtitle={`/predictions · ${predList.length} active`} acc={theme.amber}><div style={{display:"flex",flexDirection:"column",gap:7,maxHeight:260,overflowY:"auto"}}>{predList.map((p,i)=>{const txt=typeof p==="string"?p:(p.prediction||p.message||JSON.stringify(p));return(<div key={i} style={{padding:"9px 12px",background:`${theme.amber}08`,border:`1px solid ${theme.amber}22`,borderRadius:5,display:"flex",gap:9}}><span style={{fontSize:14}}>🔮</span><div><div style={{fontSize:13,color:theme.amber,fontFamily:"'Inter',sans-serif",marginBottom:3}}>AI FORECAST</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.55}}>{txt}</div></div></div>);})} {!predList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel><Panel title="AI ALERT FEED" subtitle="/alerts · real-time classification" acc={theme.red}><div style={{display:"flex",flexDirection:"column",gap:6,maxHeight:260,overflowY:"auto"}}>{alertList.map((a,i)=>{const txt=typeof a==="string"?a:(a.message||a.alert||JSON.stringify(a));const {col,label}=severityFromText(txt,theme);return(<div key={i} style={{padding:"8px 11px",background:`${col}08`,borderLeft:`3px solid ${col}`,borderRadius:3,marginBottom:4}}><div style={{fontSize:13,color:col,fontFamily:"'Inter',sans-serif",marginBottom:3}}>{label}</div><div style={{fontSize:13,color:theme.txtSub,lineHeight:1.5}}>{txt}</div></div>);})}{!alertList.length&&<div style={{color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace",padding:"16px 0",textAlign:"center"}}>⏳ Loading…</div>}</div></Panel></div></div>)}
-
-            {/* ════════ ANALYTICS ════════ */}
-            {activeTab==="analytics"&&(<div style={{animation:"slideIn .4s ease"}}><div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:12}}>{(loading&&!riskEntries.length?Array.from({length:8},(_,i)=>({city:`CITY-${i+1}`,score:0,_loading:true})):riskEntries).map((c,i)=>(<Panel key={c.city} acc={c._loading?theme.accent:riskCol(c.score,isDark)} style={{animation:`fadeUp .4s ease ${i*.05}s both`,cursor:c._loading?"default":"pointer"}}><div style={{textAlign:"center"}} onClick={()=>!c._loading&&setSelectedCity(c.city)}><div style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",marginBottom:10}}>{c.city.toUpperCase()}</div>{c._loading?<Skeleton h={80} w="80px" mb={0} style={{margin:"0 auto"}}/>:(<svg width="80" height="80" style={{display:"block",margin:"0 auto"}}><circle cx="40" cy="40" r="30" fill="none" stroke={isDark?"rgba(255,255,255,0.05)":"rgba(0,0,0,0.07)"} strokeWidth="5"/><circle cx="40" cy="40" r="30" fill="none" stroke={riskCol(c.score,isDark)} strokeWidth="5" strokeDasharray={`${(c.score/100)*188.5} ${188.5-(c.score/100)*188.5}`} strokeDashoffset="47.1" strokeLinecap="round" style={{transition:"stroke-dasharray 1.2s ease"}}/><text x="40" y="45" textAnchor="middle" fill={riskCol(c.score,isDark)} fontSize="18" fontFamily="DM Mono,monospace" fontWeight="500">{c.score}</text></svg>)}<div style={{fontSize:13,color:c._loading?theme.txtMute:riskCol(c.score,isDark),fontFamily:"'Inter',sans-serif",marginTop:8}}>{c._loading?"LOADING…":riskLabel(c.score)}</div></div></Panel>))}</div><Panel title="LIVE CIVIC EVENT FEED" subtitle={`/events · ${eventList.length} incidents · polling every ${POLL_MS/1000}s`} acc={theme.accent} tag={`${eventList.length} EVENTS`}><div style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px"}}>{["TIME","LOCATION","DESCRIPTION","ISSUE","SENTIMENT","RISK SCORE"].map(h=>(<div key={h} style={{fontSize:13,color:theme.txtMute,fontFamily:"'Inter',sans-serif",letterSpacing:"0.07em",padding:"5px 8px",borderBottom:`1px solid ${theme.border}`}}>{h}</div>))}</div><div style={{maxHeight:360,overflowY:"auto"}}>{loading&&!eventList.length?Array.from({length:6},(_,i)=><div key={i} style={{padding:"8px",borderBottom:`1px solid ${theme.border}22`}}><Skeleton h={14} mb={0}/></div>):eventList.length?eventList.map((e,i)=>{const ts=e.timestamp?new Date(e.timestamp).toLocaleTimeString():"—";const risk=e.risk_score??e.risk??0;const sent=e.sentiment??0;return(<div key={i} style={{display:"grid",gridTemplateColumns:"85px 110px 1fr 100px 70px 70px",alignItems:"center",borderBottom:`1px solid ${theme.border}20`,animation:`fadeUp .3s ease ${Math.min(i,.2)*i*.02}s both`,transition:"background .15s"}} onMouseEnter={e2=>e2.currentTarget.style.background=`${theme.accent}06`} onMouseLeave={e2=>e2.currentTarget.style.background="transparent"}><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{ts}</div><div style={{fontSize:14,color:theme.accent,fontFamily:"'Inter',sans-serif",fontWeight:700,padding:"6px 8px"}}>{e.location||e.city||"—"}</div><div style={{fontSize:14,color:theme.txtSub,fontFamily:"'DM Mono',monospace",padding:"6px 8px",whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{e.text||e.description||"—"}</div><div style={{fontSize:14,color:theme.txtMute,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{e.issue||"—"}</div><div style={{fontSize:14,color:sent<0?theme.red:theme.green,fontFamily:"'DM Mono',monospace",padding:"6px 8px"}}>{typeof sent==="number"?sent.toFixed(2):"—"}</div><div style={{padding:"6px 8px",display:"flex",alignItems:"center",gap:6}}><div style={{flex:1,height:4,borderRadius:2,background:`${riskCol(risk,isDark)}25`}}><div style={{height:"100%",width:`${risk}%`,background:riskCol(risk,isDark),borderRadius:2,transition:"width 1s ease"}}/></div><span style={{fontSize:14,color:riskCol(risk,isDark),fontFamily:"'Inter',sans-serif",fontWeight:700}}>{risk}</span></div></div>);}):(<div style={{padding:"30px",textAlign:"center",color:theme.txtMute,fontSize:13,fontFamily:"'DM Mono',monospace"}}>⏳ Waiting for events…</div>)}</div></Panel></div>)}
->>>>>>> b81a9b0873e43e8f618d13195f9e56ed7937a731
 
               {/* Alert panel */}
               <Panel title="AI ALERT FEED" subtitle={`/alerts · ${alertList.length} active`} acc={theme.red} tag="LIVE">
