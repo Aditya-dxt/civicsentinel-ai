@@ -105,7 +105,7 @@ function useDashboard() {
         fetch(`${API}/issue-trends`).then(r => r.json()),
         fetch(`${API}/alerts`).then(r => r.json()),
         fetch(`${API}/predictions`).then(r => r.json()),
-        fetch(`${API}/ai-insight`).then(r => r.json()),
+        fetch(`${API}/ai-insight?query=summarize+civic+issues`).then(r => r.json()),
         fetch(`${API}/knowledge-graph`).then(r => r.json()),
         fetch(`${API}/health`).then(r => r.json()),
         fetch(`${API}/dashboard`).then(r => r.json()),
@@ -1026,9 +1026,11 @@ function AIInsightPanel({ insight, loading, error }) {
   const [localLoading, setLocalLoading] = useState(false);
 
   const fetchInsight = useCallback(async (q) => {
-    setLocalLoading(true);
-    try {
-      const url = q ? `${API}/ai-insight?query=${encodeURIComponent(q)}` : `${API}/ai-insight`;
+  setLocalLoading(true);
+  try {
+    // Always send a default query — never call /ai-insight without one
+    const safeQuery = q || "summarize current civic issues and risk levels";
+    const url = `${API}/ai-insight?query=${encodeURIComponent(safeQuery)}`;
       const res = await fetch(url);
       const d   = await res.json();
       setLocalResult(d);
