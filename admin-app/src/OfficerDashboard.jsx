@@ -144,7 +144,7 @@ function useDashboard() {
 
     const connect = () => {
       try {
-        ws = new WebSocket(`wss://civicsentinel-ai-1.onrender.com/ws/events`);
+        ws = new WebSocket(`wss://civicsentinel-ai-1-z7io.onrender.com/ws/events`);
         ws.onopen = () => setState(prev => ({ ...prev, wsConnected: true }));
         ws.onmessage = (msg) => {
           try {
