@@ -1853,7 +1853,7 @@ export default function OfficerDashboard({ user, onReport, onLogout }) {
                     <span style={{width:9,height:9,borderRadius:"50%",background:wsConnected?theme.accent:"rgba(150,150,150,.4)",display:"inline-block",animation:wsConnected?"pulseDot 1.5s infinite":"none"}}/>
                     <span style={{fontSize:14,fontWeight:700,color:wsConnected?theme.accent:theme.txtMute}}>{wsConnected?"WebSocket Connected":"Connecting to WebSocket…"}</span>
                   </div>
-                  <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1.onrender.com/ws/events</span>
+                  <span style={{fontSize:11,color:theme.txtMute,fontFamily:"'DM Mono',monospace"}}>wss://civicsentinel-ai-1-z7io.onrender.com/ws/events</span>
                   {wsEventList.length > 0 && (
                     <span style={{fontSize:11,background:`${theme.accent}14`,border:`1px solid ${theme.accent}30`,borderRadius:20,padding:"2px 10px",color:theme.accent,fontFamily:"'DM Mono',monospace",marginLeft:"auto"}}>
                       {wsEventList.length} EVENTS RECEIVED
