@@ -41,52 +41,33 @@ Built with FastAPI · React · LangChain · RAG · WebSockets · Knowledge Graph
 ## 🧩 What Is CivicSentinel AI?
 
 CivicSentinel AI is a **three-part platform** — a citizen app, an admin intelligence dashboard, and an AI backend engine — designed to modernize how civic issues are reported, analyzed, and acted upon.
+## 🏗️ How It Works
+
+```
 Citizen Reports / Civic Events
-
-│
-
-▼
-
-React Frontend Apps
-
+           │
+           ▼
+   React Frontend Apps
 (Citizen App + Admin Dashboard)
-
-│
-
-▼
-
-FastAPI Backend (AI Engine)
-
-│
-
-┌────────┼────────┐
-
-▼        ▼        ▼
-
-NLP   Anomaly   Risk Engine
-
-Detection
-
-│
-
-▼
-
-Intelligence Layer
-
+           │
+           ▼
+    FastAPI Backend (AI Engine)
+           │
+  ┌────────┼────────┐
+  ▼        ▼        ▼
+ NLP   Anomaly   Risk Engine
+       Detection
+           │
+           ▼
+   Intelligence Layer
 (Alerts · Trends · Predictions)
-
-│
-
-▼
-
-Knowledge Graph + RAG Pipeline
-
-│
-
-▼
-
-AI Insight APIs → Dashboard
-
+           │
+           ▼
+ Knowledge Graph + RAG Pipeline
+           │
+           ▼
+    AI Insight APIs → Dashboard
+```
 ---
 
 ## ✨ Features
